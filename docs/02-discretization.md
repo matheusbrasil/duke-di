@@ -42,7 +42,6 @@ The baked coefficients (`embedded/effects/duke/duke_fixed.h`, from
 
 | Section | fc (Hz) | b0 | a1 |
 |---------|---------|----|----|
-| LOWCUT (90 Hz) | 90.0  | 0.9936293 | -0.9872587 |
 | DC1  (9.5 Hz)  | 9.5   | 0.9993237 | -0.9986474 |
 | DC2  (3.18 Hz) | 3.18  | 0.9997735 | -0.9995470 |
 | CFHP (33.9 Hz) | 33.9  | 0.9975908 | -0.9951817 |
@@ -51,15 +50,37 @@ The baked coefficients (`embedded/effects/duke/duke_fixed.h`, from
 
 (`b1 = -b0` for every high-pass.)
 
-### First-order shelves (Bass 150 Hz, Treble 3.5 kHz)
+### Interactive FMV tone stack (3rd-order, Bass + Treble)
 
-Boost-only. Low shelf `H(s) = (s + A*wc)/(s + wc)`, high shelf
-`H(s) = (A*s + wc)/(s + wc)`, with `A = 10^(gain_dB/20)`. Discretised with
-`scipy.signal.bilinear`. Because the gain `A` depends on the knob, these
-**cannot** be evaluated in the kernel (no `pow`, no divide). Instead
-`bake_tables.py` samples `{b0,b1,a1}` at **17 knob steps** (0..1) into
-`duke_tables[]`; the kernel linearly interpolates between steps
-(`approx.h: shelf_of`). The two tiers therefore use the identical shelf curve.
+The tone stack is a passive FMV network (see `01-circuit-analysis.md`), so its
+transfer is an exact **(3,3) rational** `H(s)` whose coefficients depend on
+*both* knob positions. `reference/python/tonestack.py` solves the network by
+nodal analysis (MNA) at a set of frequencies and identifies `H(s)` by
+least-squares. A naive wide-frequency sweep is ill-conditioned (huge dynamic
+range in the `s^k` columns, and a near-degenerate MHz pole at the pot ends that
+turns into a spurious unstable pole after bilinear). The fix: **sample on
+circles** `|s| = w0` (w0 = 2*pi*1000) at several complex angles and two radii,
+normalise the columns by `w0^k`, solve, then rescale the coefficients by
+`w0^k`. This recovers `H(s)` to 1.9e-4 dB and keeps every pole in the LHP.
+
+`H(s)` is discretised with `scipy.signal.bilinear` to a 3rd-order IIR. Because
+the coefficients depend on the knobs (and the kernel has no `pow`/divide),
+`bake_tables.py` evaluates the 7 coefficients `{b0,b1,b2,b3,a1,a2,a3}` on a
+**9x9 (treble,bass) grid** into `duke_tables[]`; the kernel does 2-D bilinear
+interpolation (`approx.h: eq_of`) and runs one 3rd-order TDF2 section
+(`duke.c: df3`). The fixed `TONE_MAKEUP` is folded into the baked numerator so
+noon lands at ~unity.
+
+A stability gate in `bake_tables.py` sweeps every grid node **and** 5x5
+bilinearly-interpolated sub-cells (exactly what `eq_of` produces between nodes),
+asserting max digital pole radius < 0.9999 (actual 0.99918).
+
+### Low-cut (treble-dependent, baked over 17 steps)
+
+First-order high-pass `H(s) = s/(s+wc)` with `wc = 2*pi*fc`,
+`fc = 1/(2*pi*(Zout(T)+220k)*4n7)`. Because `Zout` tracks the TREBLE wiper,
+`bake_tables.py` samples `{b0,b1,a1}` at **17 treble steps** into the blob;
+the kernel interpolates with `approx.h: lowcut_of`.
 
 ### Transformer low-pass (XFLP, HF leakage rolloff)
 
@@ -78,7 +99,8 @@ as a LUT:
   (`tube_shape`, LUT `OFF_WS`). Index `= (u + 8) * WS_ISTEP`, `WS_ISTEP` a
   compile-time constant (no divide).
 - **Gain drive taper**: `0.25*(36)^g`, **33 points** (`drive_of`, `OFF_DRV`).
-- **Shelf coeffs**: 17 steps x 3 coeffs x 2 shelves (above).
+- **EQ coeffs**: 9x9 grid x 7 coeffs (FMV stack, above).
+- **Low-cut coeffs**: 17 treble steps x 3 coeffs (above).
 
 Between the baked samples the kernel does linear interpolation only
 (multiply + add + float↔int convert). This is the core SAFE-DSP trade: all
@@ -86,8 +108,8 @@ transcendental/divide work moves offline into `tables.bin`.
 
 ## Sag / compression
 
-Shared-rail droop is a one-pole envelope on `|u|` at **2.06 Hz**
-(`SAG_A = 0.9997065`, `y += (1-a)*(|x|-y)`).
+Shared-rail droop is a one-pole envelope on `|u|` at **0.48 Hz**
+(`SAG_A` from `SAG_FC=0.48`, `y += (1-a)*(|x|-y)`).
 - **Tier A** shifts the cathode bias `vk += 0.6*sag` (moves the operating
   point, re-curving the waveshaper).
 - **Tier B** applies it as a gentle output compression `w * (1 - 0.15*sag)` -

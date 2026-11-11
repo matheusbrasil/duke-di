@@ -13,8 +13,9 @@ analog stage. (C) needs ngspice/LTspice on your machine; (A) and (B) run here.
 - **Even-order dominant**: H2 ~7 dB above H3 on a 110 Hz tone - the
   single-ended-triode signature.
 - **THD** ~1.8% at nominal drive (clean preamp, not an overdrive).
-- **EQ**: +12 dB boost-only shelves at exactly 150 Hz / 3.5 kHz.
-- **Low-cut**: 90 Hz, -6 dB/oct.
+- **EQ**: interactive FMV tone stack (3rd-order); noon restored to ~unity by
+  `TONE_MAKEUP`, Bass/Treble boost from noon.
+- **Low-cut**: treble-dependent ~82..154 Hz, -6 dB/oct.
 
 Run: `python3 reference/python/duke_ref.py`.
 
@@ -27,7 +28,7 @@ compared to Tier A.
 ```
 python3 reference/python/bake_tables.py     # bake LUTs + host twin
 bash   validation/build_host.sh             # gcc -> validation/host_duke
-python3 validation/ab_test.py               # 7 checks
+python3 validation/ab_test.py               # 8 checks
 python3 validation/check_safe_dsp.py        # source SAFE-DSP lint
 ```
 
@@ -45,13 +46,16 @@ a *broken* model while allowing the *intended* reductions.
 | T1 | Broadband gain @ 1 kHz | within **1.5 dB** of Tier A | Audible level match; a wrong cascade gain or dead stage breaks it. |
 | T2 | Magnitude 50 Hz..12 kHz | within **2.0 dB** | Filter corners/shapes must track; catches a mis-discretised section. |
 | T3 | Even-order dominance | kernel **H2 ≥ 4 dB > H3** | The whole point of the voicing; a symmetric/dead nonlinearity fails. |
-| T4 | Bass/Treble shelf | **≥ +4 dB** at the corner | Proves the baked shelf LUT and interp actually boost at 150 Hz / 3.5 kHz. |
-| T5 | Low-cut @ 45 Hz | **≤ -4 dB** when ON | Proves the 90 Hz -6 dB/oct section engages. |
+| T3 | Even-order dominance | kernel **H2 ≥ 4 dB > H3** at moderate drive, and tracks Tier A | Even-order richness is a moderate-drive phenomenon; past clipping onset odd rises in both tiers. Checked at amp 0.12/gain 0.5 plus a ref-tracking bound. |
+| T4 | Tone-stack tilt authority | Bass and Treble each move their band **≥ +4 dB** from noon | Proves the baked 9x9 EQ LUT + 2-D interp give real boost-from-noon authority (interactive stack, not independent shelves). |
+| T5 | Low-cut @ 45 Hz | **≤ -4 dB** when ON | Proves the treble-dependent -6 dB/oct section engages. |
 | T6 | Numerical safety | finite, **|y| < 8** (kernel clamp) | No divergence and no sample scrubbed to zero (no dropouts). |
+| T7 | In-band aliasing | worst spur **≤ -24 dBc** on a hot 7 kHz stress tone | Base-rate (1x) model; bounds the aliasing the no-oversampling choice admits. |
 
-Current status: **7/7 pass**. Measured headroom is large - T1 deviation
-**+0.01 dB**, T2 worst **0.17 dB**, T3 margin **+13.5 dB** - so the reductions
-cost far less than the tolerances allow.
+Current status: **8/8 pass**. Measured headroom is large - T1 deviation
+**+0.09 dB**, T2 worst **0.15 dB**, T3 margin **+12.0 dB** (ref +12.1),
+T4 bass **+17.3 dB** / treble **+13.1 dB**, T5 **-9.8 dB**, T7 worst spur
+**-32 dBc** - so the reductions cost far less than the tolerances allow.
 
 ### SAFE-DSP lint
 
@@ -67,7 +71,7 @@ C674x object* divides/calls nothing requires disassembling the `cl6x` output
 
 - `12au7.lib` - Koren 12AU7 device model.
 - `gain_stage.cir` - one common-cathode stage: AC Bode + `.four` THD at 1 kHz.
-- `tone_eq.cir` - the boost-only shelves + 90 Hz low-cut: AC Bode.
+- `tone_eq.cir` - the interactive FMV tone stack + treble-dependent low-cut: AC Bode.
 - `run_sweeps.sh` - runs both under ngspice; writes `validation/spice_*_ac.txt`.
 
 ```

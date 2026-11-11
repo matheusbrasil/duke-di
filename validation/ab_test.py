@@ -12,10 +12,19 @@ tolerances, and that it is numerically safe.
 Pass/fail tolerances (justification in docs/03-validation.md):
   T1 broadband gain (1 kHz, small signal)   : within 1.5 dB of Tier A
   T2 magnitude response 50 Hz..12 kHz       : within 2.0 dB of Tier A
-  T3 even-order dominance (H2 > H3)          : kernel H2 at least 4 dB > H3
-  T4 EQ shelf action (Bass/Treble boost)     : >= +4 dB at shelf vs flat
+  T3 even-order dominance (H2 > H3)          : kernel H2 >= 4 dB above H3 at
+                                               moderate drive, tracking Tier A
+  T4 FMV stack tilt authority (Bass/Treble)  : >= 8 dB low/high-vs-mid tilt
+                                               over the full knob sweep
   T5 low-cut at 45 Hz when engaged           : <= -4 dB vs low-cut off
   T6 numerical safety                        : finite, |y| < 8 (kernel clamp)
+  T7 base-rate aliasing floor                : worst in-band spur <= -24 dBc
+
+The EQ is ONE interactive passive FMV stack (nodal model in tonestack.py), not
+two independent shelves, so T4 probes tilt authority over the sweep rather than
+a fixed single-frequency shelf gain. Even-order dominance (T3) is a moderate-
+drive phenomenon: past clipping onset odd harmonics rise in BOTH tiers, so T3
+uses a moderate level and also checks the kernel tracks the reference there.
 
 Tolerances are loose on purpose: Tier B is a CPU-budget reduction, not a
 clone of Tier A. They are tight enough to catch a broken filter, a dead
@@ -108,26 +117,36 @@ def main():
     check("T2 magresp", worst <= 2.0,
           f"worst dev {worst:.2f} dB at {worst_f} Hz")
 
-    # ---- T3 even-order dominance ----------------------------------------
-    x = sine(110.0, amp=0.25)
-    yk = run_kernel(x, 0.7, 0.5, 0.5, 0.8, False, False)
+    # ---- T3 even-order dominance (moderate drive) -----------------------
+    # Even-order dominance is the tube's moderate-drive signature; past
+    # clipping onset odd harmonics rise in both tiers, so probe at a moderate
+    # level and confirm the kernel tracks the reference there.
+    x = sine(110.0, amp=0.12)
+    yk = run_kernel(x, 0.5, 0.5, 0.5, 0.8, False, False)
+    yr = ref.process(x, gain=0.5, bass=0.5, treble=0.5, level=0.8)
     h1, h2, h3 = (mag_at(yk, 110), mag_at(yk, 220), mag_at(yk, 330))
     even_margin = db(h2) - db(h3)
-    check("T3 even>odd", even_margin >= 4.0,
-          f"H2 {db(h2/h1):+.1f} dBc, H3 {db(h3/h1):+.1f} dBc, "
-          f"H2-H3 {even_margin:+.1f} dB")
+    r_margin = db(mag_at(yr, 220)) - db(mag_at(yr, 330))
+    check("T3 even>odd", even_margin >= 4.0 and abs(even_margin - r_margin) <= 3.0,
+          f"H2 {db(h2/h1):+.1f} dBc, H2-H3 {even_margin:+.1f} dB "
+          f"(ref {r_margin:+.1f})")
 
-    # ---- T4 EQ shelf action ---------------------------------------------
-    xb = sine(150.0, amp=0.02)
-    flat = db(mag_at(run_kernel(xb, 0.5, 0.5, 0.5, 0.8, False, False), 150))
-    boost = db(mag_at(run_kernel(xb, 0.5, 1.0, 0.5, 0.8, False, False), 150))
-    xt = sine(3500.0, amp=0.02)
-    flatt = db(mag_at(run_kernel(xt, 0.5, 0.5, 0.5, 0.8, False, False), 3500))
-    boostt = db(mag_at(run_kernel(xt, 0.5, 0.5, 1.0, 0.8, False, False), 3500))
-    check("T4 bass shelf", boost - flat >= 4.0,
-          f"+{boost-flat:.1f} dB at 150 Hz")
-    check("T4 treble shelf", boostt - flatt >= 4.0,
-          f"+{boostt-flatt:.1f} dB at 3.5 kHz")
+    # ---- T4 interactive FMV stack tilt authority ------------------------
+    # One interactive network (not independent shelves): Bass sets low-vs-mid
+    # tilt, Treble sets high-vs-mid tilt. Check authority over the full sweep.
+    def tilt(f_hi, f_mid, bassv, trebv):
+        a = db(mag_at(run_kernel(sine(f_hi, amp=0.02), 0.5, bassv, trebv,
+                                 0.8, False, False), f_hi))
+        b = db(mag_at(run_kernel(sine(f_mid, amp=0.02), 0.5, bassv, trebv,
+                                 0.8, False, False), f_mid))
+        return a - b
+
+    bass_auth = tilt(80, 700, 1.0, 0.5) - tilt(80, 700, 0.0, 0.5)
+    treb_auth = tilt(3500, 700, 0.5, 1.0) - tilt(3500, 700, 0.5, 0.0)
+    check("T4 bass authority", bass_auth >= 8.0,
+          f"{bass_auth:+.1f} dB low-vs-mid over sweep")
+    check("T4 treble authority", treb_auth >= 8.0,
+          f"{treb_auth:+.1f} dB high-vs-mid over sweep")
 
     # ---- T5 low-cut ------------------------------------------------------
     xl = sine(45.0, amp=0.02)
@@ -146,6 +165,21 @@ def main():
             if not np.all(np.isfinite(y)) or np.max(np.abs(y)) >= 8.0:
                 safe = False
     check("T6 safety", safe, "finite and inside the kernel clamp (|y|<8)")
+
+    # ---- T7 base-rate aliasing floor ------------------------------------
+    # The kernel has no oversampling (CPU budget); the LUT waveshaper folds
+    # some energy. A hot 7 kHz stress tone's worst non-harmonic in-band spur
+    # must stay down. Bass-range program rarely has fundamentals this high.
+    x = sine(7000.0, amp=0.3)
+    y = run_kernel(x, 0.8, 0.5, 0.5, 0.8, False, False)
+    seg = y[len(y) // 4:] * np.hanning(len(y) - len(y) // 4)
+    Y = np.abs(np.fft.rfft(seg))
+    fr = np.fft.rfftfreq(len(seg), 1.0 / FS)
+    fund = Y[int(np.argmin(np.abs(fr - 7000)))]
+    spur = float(Y[fr < 6000].max())
+    alias_dbc = db(spur) - db(fund)
+    check("T7 aliasing", alias_dbc <= -24.0,
+          f"worst in-band spur {alias_dbc:.1f} dBc @7k hot")
 
     npass = sum(1 for _, ok, _ in results if ok)
     print(f"\n{npass}/{len(results)} checks passed")

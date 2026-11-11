@@ -1,9 +1,10 @@
 /* duke.c - Duke DI: white-box 12AU7 preamp/DI kernel for the Zoom MS+ C674x.
  *
  * Models the Conspiracy-to-Commit "Nobelium" (a Noble Preamp DI clone): two
- * starved-heater 12AU7 gain stages on a 250 V rail, a passive boost-only
- * shelving EQ (bass 150 Hz, treble 3.5 kHz), a switchable 90 Hz low-cut, a
- * V2 White cathode follower, and an optional JT-DB-EPC DI-transformer path.
+ * starved-heater 12AU7 gain stages on a 250 V rail, an interactive passive FMV
+ * tone stack (Bass/Treble, derived by nodal analysis), a switchable treble-
+ * dependent low-cut (~82-154 Hz), a V2 White cathode follower, and an optional
+ * JT-DB-EPC DI-transformer path.
  * Full circuit analysis: docs/01-circuit-analysis.md. Tier A reference:
  * reference/python/duke_ref.py. This kernel is the Tier B reduction of it.
  *
@@ -39,26 +40,37 @@
 #define S_DRIVE 0
 #define S_LEVEL 1
 #define CHA     5
-#define SB      11
+#define SB      12
 #define CHB     (CHA + SB)
 /* section indices within a channel block */
 #define Z_V1BSAG 0
-#define Z_TRE    1
-#define Z_BAS    2
-#define Z_LC     3
-#define Z_V1ASAG 4
-#define Z_DC1    5
-#define Z_DC2    6
-#define Z_CFHP   7
-#define Z_OUTHP  8
-#define Z_XFHP   9
-#define Z_XFLP   10
+#define Z_EQ     1    /* FMV tone stack, 3rd order -> words 1,2,3 */
+#define Z_LC     4
+#define Z_V1ASAG 5
+#define Z_DC1    6
+#define Z_DC2    7
+#define Z_CFHP   8
+#define Z_OUTHP  9
+#define Z_XFHP   10
+#define Z_XFLP   11
 
 /* one transposed-direct-form-II first-order section: y = b0*x + z, z updated */
 static inline float tdf2(float x, float b0, float b1, float a1, float *z)
 {
     float y = b0 * x + *z;
     *z = b1 * x - a1 * y;
+    return y;
+}
+
+/* transposed-direct-form-II 3rd-order section (the interactive FMV stack).
+ * c = {b0,b1,b2,b3,a1,a2,a3}; z[0..2] are this section's three state words.
+ * Multiplies and adds only - SAFE-DSP compliant. */
+static inline float df3(float x, const float *c, float *z)
+{
+    float y = c[0] * x + z[0];
+    z[0] = c[1] * x - c[4] * y + z[1];
+    z[1] = c[2] * x - c[5] * y + z[2];
+    z[2] = c[3] * x - c[6] * y;
     return y;
 }
 
@@ -84,23 +96,23 @@ static inline float white_cf(float u, float *zhp)
     return 0.92f * hi + 0.92f * (lo + 0.15f * lo * alo);
 }
 
-/* process one channel's 16-frame slice. `st` -> this channel's state block. */
-static inline float duke_sample(float x, float drive, float b0t, float b1t,
-                                float a1t, float b0b, float b1b, float a1b,
-                                float lowcut, float xfmr, float vol, float *st)
+/* process one channel's 16-frame slice. `st` -> this channel's state block.
+ * eqc = 7 FMV-stack coeffs {b0..b3,a1..a3}; lcc = 3 low-cut coeffs {b0,b1,a1}. */
+static inline float duke_sample(float x, float drive, const float *eqc,
+                                const float *lcc, float lowcut, float xfmr,
+                                float vol, float *st)
 {
     float u = x * drive;
 
     /* V1B */
     u = tube_stage(u, &st[Z_V1BSAG]);
 
-    /* boost-only EQ: treble high-shelf then bass low-shelf */
-    u = tdf2(u, b0t, b1t, a1t, &st[Z_TRE]);
-    u = tdf2(u, b0b, b1b, a1b, &st[Z_BAS]);
+    /* interactive passive FMV tone stack (Bass/Treble), one 3rd-order section */
+    u = df3(u, eqc, &st[Z_EQ]);
 
-    /* ROLLOFF low-cut (90 Hz) - selector 0/1 crossfaded, no branch divergence */
+    /* ROLLOFF low-cut (treble-dependent corner) - selector 0/1 crossfade */
     {
-        float hp = tdf2(u, LOWCUT_B0, LOWCUT_B1, LOWCUT_A1, &st[Z_LC]);
+        float hp = tdf2(u, lcc[0], lcc[1], lcc[2], &st[Z_LC]);
         u = u + lowcut * (hp - u);
     }
 
@@ -172,9 +184,10 @@ void SH_AUDIO_FN(void **instance, void **ctx)
     /* ---- per-block derived values (shared across both channels) --------- */
     float drive_t = drive_of(gain);
     float level_t = lvl * CAL_MAKEUP;
-    float b0t, b1t, a1t, b0b, b1b, a1b;
-    shelf_of(OFF_TREBLE, treb, &b0t, &b1t, &a1t);
-    shelf_of(OFF_BASS,   bass, &b0b, &b1b, &a1b);
+    float eqc[7];
+    float lcc[3];
+    eq_of(treb, bass, eqc);
+    lowcut_of(treb, &lcc[0], &lcc[1], &lcc[2]);
 
     /* smoothed gain/level carried in the shared state words */
     float sD = st[S_DRIVE];
@@ -184,10 +197,9 @@ void SH_AUDIO_FN(void **instance, void **ctx)
         sD += 0.01f * (drive_t - sD);      /* click-free drive/level */
         sL += 0.01f * (level_t - sL);
 
-        float a = duke_sample(eff[i], sD, b0t, b1t, a1t, b0b, b1b, a1b,
-                              lowc, xfm, sL, &st[CHA]);
-        float b = duke_sample(eff[i + SH_CH_B_OFFSET], sD, b0t, b1t, a1t,
-                              b0b, b1b, a1b, lowc, xfm, sL, &st[CHB]);
+        float a = duke_sample(eff[i], sD, eqc, lcc, lowc, xfm, sL, &st[CHA]);
+        float b = duke_sample(eff[i + SH_CH_B_OFFSET], sD, eqc, lcc,
+                              lowc, xfm, sL, &st[CHB]);
 
         /* bypass crossfade (click-free, exact pass-through when fade=0) */
         float ina = eff[i];

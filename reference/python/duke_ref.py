@@ -25,6 +25,7 @@ from __future__ import annotations
 import numpy as np
 from scipy import signal
 import tube
+import tonestack
 
 FS = 44100.0
 OS = 8
@@ -40,8 +41,14 @@ CAL_INTERSTAGE = 2.2
 CAL_VOL_NODE = 1.0
 CAL_MAKEUP = 0.9
 
-BASS_MAX_DB = 12.0
-TREBLE_MAX_DB = 12.0
+# passive FMV tone stack (tonestack.py) replaces the old independent shelves.
+# SAG_FC: V1A+V1B share R24 1k5 bypassed by C13 1u || C14 220u = 221uF
+#   -> fc = 1/(2*pi*1k5*221u) = 0.48 Hz (was modelled at 2.06 Hz).
+SAG_FC = 0.48
+# ROLLOFF low-cut: C8 4n7 into R18 220k, source = TREBLE wiper Zout.
+LOWCUT_C8 = 4.7e-9
+LOWCUT_R18 = 220e3
+TONE_MAKEUP = tonestack.noon_makeup()   # ~unity broadband at noon knobs
 GRID_CLAMP_V = 0.6
 
 
@@ -127,24 +134,26 @@ def process(x, *, gain=0.5, bass=0.5, treble=0.5, level=0.8,
     drive = CAL_DRIVE_MIN * (CAL_DRIVE_MAX / CAL_DRIVE_MIN) ** gain
     u = u * drive
 
-    # V1B with shared-rail sag
-    sag = one_pole_env(u, 2.06, fso)
+    # V1B with shared-rail sag (shared cathode 221uF -> 0.48 Hz)
+    sag = one_pole_env(u, SAG_FC, fso)
     u = st.shape(u, st.vk0 + 0.6 * sag)
 
-    # passive boost-only EQ
-    bt, at = high_shelf(3500.0, treble * TREBLE_MAX_DB, fso)
-    bb, ab = low_shelf(150.0, bass * BASS_MAX_DB, fso)
-    u = signal.lfilter(bt, at, u)
-    u = signal.lfilter(bb, ab, u)
+    # passive interactive FMV tone stack (exact nodal model) + noon makeup
+    wt = tonestack.taper(treble)
+    wb = tonestack.taper(bass)
+    be, ae = tonestack.design_digital(wt, wb, fso)
+    u = signal.lfilter(be, ae, u) * TONE_MAKEUP
 
-    # ROLLOFF low-cut
+    # ROLLOFF low-cut: corner is TREBLE-dependent (wiper Zout in series)
     if lowcut:
-        bh, ah = bilinear_hpf(90.0, fso)
+        rs = tonestack.zout_T(wt, wb)
+        fc = 1.0 / (2.0 * np.pi * (rs + LOWCUT_R18) * LOWCUT_C8)
+        bh, ah = bilinear_hpf(fc, fso)
         u = signal.lfilter(bh, ah, u)
 
-    # V1A
+    # V1A (shared cathode sag, 0.48 Hz)
     u = u * CAL_INTERSTAGE
-    sag2 = one_pole_env(u, 2.06, fso)
+    sag2 = one_pole_env(u, SAG_FC, fso)
     u = st.shape(u, st.vk0 + 0.6 * sag2)
 
     # V1A loading + C7 DC block

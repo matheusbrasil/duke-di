@@ -59,14 +59,33 @@ static inline float drive_of(float gain01) {
     return lut1(OFF_DRV, DRV_N, gain01 * DRV_ISTEP);
 }
 
-/* Fetch an interpolated first-order shelf {b0,b1,a1} for a knob step.
- * Writes into the 3 out params; no divide (row stride is a constant). */
-static inline void shelf_of(int base_off, float knob01,
-                            float *b0, float *b1, float *a1) {
-    float fidx = clampf(knob01 * SHELF_ISTEP, 0.0f, (float)(SHELF_N - 1) - 1e-4f);
+/* Interpolated interactive FMV tone-stack coefficients {b0,b1,b2,b3,a1,a2,a3}
+ * for the current (treble, bass) knobs, via 2-D bilinear interpolation of the
+ * EQ_N x EQ_N grid. Row-major cell(ti,bj); no divide (EQ_ISTEP, strides are
+ * compile-time constants). Writes 7 floats into `c`. */
+static inline void eq_of(float treb01, float bass01, float *c) {
+    float ft = clampf(treb01 * EQ_ISTEP, 0.0f, (float)(EQ_N - 1) - 1e-4f);
+    float fb = clampf(bass01 * EQ_ISTEP, 0.0f, (float)(EQ_N - 1) - 1e-4f);
+    int ti = (int)ft, bj = (int)fb;
+    float rt = ft - (float)ti, rb = fb - (float)bj;
+    int r00 = OFF_EQ + (ti * EQ_N + bj) * EQ_STRIDE;
+    int r01 = r00 + EQ_STRIDE;                 /* bass + 1 */
+    int r10 = OFF_EQ + ((ti + 1) * EQ_N + bj) * EQ_STRIDE;   /* treble + 1 */
+    int r11 = r10 + EQ_STRIDE;
+    int k;
+    for (k = 0; k < EQ_STRIDE; k++) {
+        float v0 = tbl(r00 + k) + rb * (tbl(r01 + k) - tbl(r00 + k));
+        float v1 = tbl(r10 + k) + rb * (tbl(r11 + k) - tbl(r10 + k));
+        c[k] = v0 + rt * (v1 - v0);
+    }
+}
+
+/* Interpolated ROLLOFF low-cut {b0,b1,a1} for the current treble knob. */
+static inline void lowcut_of(float treb01, float *b0, float *b1, float *a1) {
+    float fidx = clampf(treb01 * LC_ISTEP, 0.0f, (float)(LC_N - 1) - 1e-4f);
     int i = (int)fidx;
     float fr = fidx - (float)i;
-    int r0 = base_off + i * 3;
+    int r0 = OFF_LC + i * 3;
     int r1 = r0 + 3;
     *b0 = tbl(r0 + 0) + fr * (tbl(r1 + 0) - tbl(r0 + 0));
     *b1 = tbl(r0 + 1) + fr * (tbl(r1 + 1) - tbl(r0 + 1));

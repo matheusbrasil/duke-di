@@ -14,11 +14,12 @@ instruction**. Every expensive op was moved offline:
 |------------------|----------------------|--------------|
 | Koren `exp/log` plate map | 513-pt LUT + linear interp (`tube_shape`) | interp error ≪ tube tolerance; A/B magnitude 0.17 dB |
 | `pow` drive taper | 33-pt LUT (`drive_of`) | smooth log sweep, imperceptible steps |
-| knob-dependent shelf `pow`/divide | 17-step {b0,b1,a1} LUT + interp (`shelf_of`) | identical curve to Tier A |
+| knob-dependent EQ `pow`/divide | 9x9 grid x 7-coeff LUT + 2-D interp (`eq_of`) | FMV stack, identical curve to Tier A |
+| treble-dependent low-cut | 17-step {b0,b1,a1} LUT + interp (`lowcut_of`) | tracks wiper Zout corner |
 | `tanh` transformer sat | cubic `x - k*x^3` (`XF_SAT`) | matches first saturating term |
 | per-section divide | precomputed reciprocal-step constants (`*_ISTEP`) | compile-time folded, zero runtime divides |
 
-The LUTs ship as a **const_blob**: `tables.bin` (648 words / 2592 bytes) is
+The LUTs ship as a **const_blob**: `tables.bin` (1164 words / 4656 bytes) is
 injected by the build into the symbol `duke_tables[]`, which the kernel reads
 via `extern const unsigned int duke_tables[]`. Regenerate with
 `python3 reference/python/bake_tables.py`.
@@ -31,9 +32,9 @@ via `extern const unsigned int duke_tables[]`. Regenerate with
 - Mandatory **guard prologue** (verifies the init magic at state word
   `state_bytes/4`) and **per-sample output clamp** (`|y|<8` → 0) per the
   stomphacks `SAFETY.md`.
-- State budget: kernel uses words 0..26 (108 B); manifest declares
+- State budget: kernel uses 29 words (116 B); manifest declares
   `state_bytes: 128` (≤ 188 B cleanroom limit), leaving the firmware guard
-  word clear.
+  word (word 32) clear.
 - Kernel placed in `.text` (`"kernel_section": "text"`) because the model
   exceeds the 1472-byte `.audio` budget; `.text` allows up to ~72 KB.
 
@@ -42,10 +43,10 @@ via `extern const unsigned int duke_tables[]`. Regenerate with
 | Slot | Param | Range | Note |
 |------|-------|-------|------|
 | 5 | Gain  | 0..100 | added drive control |
-| 6 | Bass  | 0..100 | +shelf @ 150 Hz |
-| 7 | Treble| 0..100 | +shelf @ 3.5 kHz (label truncates to "Trebl") |
+| 6 | Bass  | 0..100 | FMV bass, boost from noon |
+| 7 | Treble| 0..100 | FMV treble, boost from noon (label truncates to "Trebl") |
 | 8 | Level | 0..100 | stock_vol curve, unity at 80 |
-| 9 | LoCut | OFF/ON | 90 Hz low-cut |
+| 9 | LoCut | OFF/ON | ~82..154 Hz low-cut (treble-dependent) |
 | 10| XFMR  | OFF/ON | DI-transformer path |
 
 Six params; the pedal pages them. All labels ≤ 5 chars except "Treble"
@@ -58,13 +59,13 @@ Six params; the pedal pages them. All labels ≤ 5 chars except "Treble"
 #    https://www.ti.com/tool/C6000-CGT  (free, login required)
 export ZOOM_TI_CGT=/path/to/ti-cgt-c6000_8.5.0.LTS
 
-# 2. stage the effect where the tool can see it + tables.bin
-cp embedded/effects/duke/* third_party/stomphacks/effects/duke/
+# 2. stage the effect + merge the author ledger into the clone
+bash tools/stage_build.sh
 
 # 3. build
 cd third_party/stomphacks
 python3 tools/zd2_make_effect.py effects/duke/manifest.json
-#   -> effects/duke/XXDUKE.ZD2
+#   -> effects/duke/MBDUKE.ZD2
 ```
 
 The pipeline was run here up to this point: manifest validation **passes**,
@@ -83,12 +84,17 @@ mechanical once `cl6x` is on your `PATH`/`ZOOM_TI_CGT`.
 
 ## Effect id and filename
 
-- `id: 05001000` - group byte `05` (bass category on the MS-60B+), low16
-  `0x1000` = the **playground** range (own-pedal, never distributed). Requires
-  `"allow_any_id": true`, which the manifest sets and documents.
-- `filename: XXDUKE` - `XX` is the stomphacks playground prefix.
-- If you ever distribute this, request an author range (`low16 ≥ 0x2000`) per
-  `third_party/stomphacks/docs/id-scheme.md` and change both fields.
+- `id: 0400A001` - group byte `04` (**PREAMP** category on the MS-60B+), low16
+  `0xA001` inside the registered author range `0xA000..0xA03F` (nickname
+  `matheusbrasil`, prefix `MB` on stomphacks). `FETCOMP 0x0100A000` already uses
+  the same author low16 base in the DYNAMICS group.
+- `"allow_any_id": true` is kept and **required**: the tool's id floor is a flat
+  `idv < 0x07000F07`, so any legitimate MS-60B+ group byte below `07` trips it.
+  This is a real low-group id, not a playground id.
+- `filename: MBDUKE` - `MB` is the author prefix.
+- The author entry lives in `ids/effect-authors.local.json` (tracked in this
+  repo) and is merged into the clone's gitignored ledger by
+  `tools/stage_build.sh` before the build.
 
 ## Install / dry-run validation (after you have a blob)
 
@@ -96,8 +102,8 @@ stomphacks ships a mock-pedal self-test and a DIY classifier:
 
 ```
 cd third_party/stomphacks
-python3 tools-pedal/install_selftest.py effects/duke/XXDUKE.ZD2   # mock install
-python3 tools-pedal/pedal_diy.py classify effects/duke/XXDUKE.ZD2 # name/id check
+python3 tools-pedal/install_selftest.py effects/duke/MBDUKE.ZD2   # mock install
+python3 tools-pedal/pedal_diy.py classify effects/duke/MBDUKE.ZD2 # name/id check
 ```
 
 These require the built `.ZD2`, so they are part of the same handover. Run them

@@ -5,10 +5,6 @@
 #ifndef DUKE_FIXED_H
 #define DUKE_FIXED_H
 
-#define LOWCUT_B0 9.936293440e-01f
-#define LOWCUT_B1 -9.936293440e-01f
-#define LOWCUT_A1 -9.872586881e-01f
-
 #define DC1_B0 9.993236973e-01f
 #define DC1_B1 -9.993236973e-01f
 #define DC1_A1 -9.986473945e-01f
@@ -33,6 +29,6 @@
 #define XFLP_B1 5.618421885e-01f
 #define XFLP_A1 1.236843770e-01f
 
-#define SAG_A 9.997065428e-01f   /* one-pole: y += (1-a)*(|x|-y) */
+#define SAG_A 9.999316139e-01f   /* one-pole: y += (1-a)*(|x|-y) */
 
 #endif /* DUKE_FIXED_H */

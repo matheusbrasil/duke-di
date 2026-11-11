@@ -8,28 +8,31 @@ as a flat float32 blob the kernel interpolates.
 Writes: embedded/effects/duke/tables.bin  (little-endian float32 words)
 
 Layout (must match tables_layout.h):
-  [OFF_WS    .. +WS_N)         12AU7 quiescent waveshaper over [-8, +8]
-  [OFF_DRV   .. +DRV_N)        GAIN -> drive taper
-  [OFF_BASS  .. +SHELF_N*3)    low-shelf  {b0,b1,a1} per knob step (150 Hz)
-  [OFF_TREBLE.. +SHELF_N*3)    high-shelf {b0,b1,a1} per knob step (3.5 kHz)
+  [OFF_WS  .. +WS_N)                 12AU7 quiescent waveshaper over [-8, +8]
+  [OFF_DRV .. +DRV_N)               GAIN -> drive taper
+  [OFF_EQ  .. +EQ_N*EQ_N*7)         FMV tone stack {b0..b3,a1..a3} 2-D grid
+  [OFF_LC  .. +LC_N*3)              ROLLOFF low-cut {b0,b1,a1} vs treble
 """
 from __future__ import annotations
 import struct
 import os
 import numpy as np
 import duke_ref as d
+import tonestack as ts
 
 # ---- mirror of tables_layout.h (keep in sync) -----------------------------
 WS_N, WS_RANGE = 513, 8.0
 DRV_N = 33
-SHELF_N = 17
+EQ_N = 9
+EQ_STRIDE = 7
+LC_N = 17
 OFF_WS = 0
 OFF_DRV = OFF_WS + WS_N
-OFF_BASS = OFF_DRV + DRV_N
-OFF_TREBLE = OFF_BASS + SHELF_N * 3
-TOTAL = OFF_TREBLE + SHELF_N * 3
+OFF_EQ = OFF_DRV + DRV_N
+OFF_LC = OFF_EQ + EQ_N * EQ_N * EQ_STRIDE
+TOTAL = OFF_LC + LC_N * 3
 
-# Tier B runs at base rate (no oversampling). Shelf coeffs are baked at FS.
+# Tier B runs at base rate (no oversampling). Coeffs are baked at FS.
 FS = d.FS
 
 
@@ -44,15 +47,68 @@ def drive_table():
     return (d.CAL_DRIVE_MIN * (d.CAL_DRIVE_MAX / d.CAL_DRIVE_MIN) ** g).astype(np.float32)
 
 
-def shelf_table(kind: str, fc: float, max_db: float):
+def _eq_cell(n_treble, n_bass):
+    """One grid cell: {b0,b1,b2,b3,a1,a2,a3}, makeup folded into numerator."""
+    wt = ts.taper(n_treble)
+    wb = ts.taper(n_bass)
+    b, a = ts.design_digital(wt, wb, FS)          # length 4 each, a0=1
+    b = np.asarray(b) * d.TONE_MAKEUP
+    a = np.asarray(a)
+    return np.concatenate([b, a[1:4]]).astype(np.float64)
+
+
+def eq_grid_table():
+    """3rd-order stack coeffs over an EQ_N x EQ_N (treble,bass) grid.
+
+    Also runs the stability gate the plan requires: every grid node AND every
+    bilinearly-interpolated sub-cell (what the kernel actually evaluates
+    between nodes) must have all poles strictly inside the unit circle."""
+    grid = np.zeros((EQ_N, EQ_N, EQ_STRIDE))
+    for ti in range(EQ_N):
+        for bj in range(EQ_N):
+            grid[ti, bj] = _eq_cell(ti / (EQ_N - 1), bj / (EQ_N - 1))
+    _assert_eq_stable(grid)
+    return grid.reshape(-1).astype(np.float32)
+
+
+def _poles_radius(coeffs7):
+    a = np.concatenate([[1.0], coeffs7[4:7]])
+    return float(np.max(np.abs(np.roots(a))))
+
+
+def _assert_eq_stable(grid):
+    worst = 0.0
+    # grid nodes
+    for ti in range(EQ_N):
+        for bj in range(EQ_N):
+            worst = max(worst, _poles_radius(grid[ti, bj]))
+    # interpolated sub-cells (bilinear of the 4 surrounding nodes), which is
+    # exactly what lut2 in the kernel produces at intermediate knob settings
+    subs = np.linspace(0.0, 1.0, 5)
+    for ti in range(EQ_N - 1):
+        for bj in range(EQ_N - 1):
+            c00, c01 = grid[ti, bj], grid[ti, bj + 1]
+            c10, c11 = grid[ti + 1, bj], grid[ti + 1, bj + 1]
+            for ft in subs:
+                for fb in subs:
+                    c = ((1 - ft) * ((1 - fb) * c00 + fb * c01)
+                         + ft * ((1 - fb) * c10 + fb * c11))
+                    worst = max(worst, _poles_radius(c))
+    assert worst < 0.9999, f"EQ grid interpolation unstable: max pole r={worst}"
+    print(f"  EQ grid stability gate: max pole radius {worst:.5f} (< 1 OK)")
+
+
+def lowcut_table():
+    """ROLLOFF high-pass {b0,b1,a1} vs TREBLE. Corner fc = 1/(2pi(Zout+R18)C8),
+    Zout = TREBLE wiper output impedance (bass fixed at noon for the Zout est;
+    the dependence is treble-dominated)."""
     rows = []
-    for i in range(SHELF_N):
-        knob = i / (SHELF_N - 1)
-        if kind == "low":
-            b, a = d.low_shelf(fc, knob * max_db, FS)
-        else:
-            b, a = d.high_shelf(fc, knob * max_db, FS)
-        # normalise a0 to 1 (scipy returns a0=1 already) -> {b0, b1, a1}
+    wb = ts.taper(0.5)
+    for i in range(LC_N):
+        wt = ts.taper(i / (LC_N - 1))
+        rs = ts.zout_T(wt, wb)
+        fc = 1.0 / (2.0 * np.pi * (rs + d.LOWCUT_R18) * d.LOWCUT_C8)
+        b, a = d.bilinear_hpf(fc, FS)
         rows += [b[0] / a[0], b[1] / a[0], a[1] / a[0]]
     return np.array(rows, dtype=np.float32)
 
@@ -73,7 +129,6 @@ def write_fixed_header():
     computed here (division allowed) and shipped as float LITERALS so the
     kernel never divides, not even to constant-fold."""
     secs = {
-        "LOWCUT": _tdf2_hpf(90.0),     # ROLLOFF 90 Hz
         "DC1":    _tdf2_hpf(9.5),      # C7 node
         "DC2":    _tdf2_hpf(3.18),     # C9 coupling
         "CFHP":   _tdf2_hpf(33.9),     # White CF lower-tube rolloff
@@ -98,8 +153,10 @@ def write_fixed_header():
         lines.append(f"#define {name}_B1 {b1:.9e}f")
         lines.append(f"#define {name}_A1 {a1:.9e}f")
         lines.append("")
-    # shared-rail sag envelope one-pole LP coefficient (2.06 Hz corner at FS)
-    sag_a = float(np.exp(-2.0 * np.pi * 2.06 / FS))
+    # shared-cathode sag envelope one-pole LP coefficient.
+    # V1A+V1B share R24 1k5 bypassed by C13 1u || C14 220u = 221uF
+    #   -> fc = 1/(2*pi*1k5*221u) = 0.48 Hz.
+    sag_a = float(np.exp(-2.0 * np.pi * d.SAG_FC / FS))
     lines.append(f"#define SAG_A {sag_a:.9e}f   /* one-pole: y += (1-a)*(|x|-y) */")
     lines.append("")
     lines += ["#endif /* DUKE_FIXED_H */", ""]
@@ -112,10 +169,10 @@ def main():
     write_fixed_header()
     ws = waveshaper_table()
     drv = drive_table()
-    bass = shelf_table("low", 150.0, d.BASS_MAX_DB)
-    treble = shelf_table("high", 3500.0, d.TREBLE_MAX_DB)
+    eq = eq_grid_table()
+    lc = lowcut_table()
 
-    blob = np.concatenate([ws, drv, bass, treble]).astype(np.float32)
+    blob = np.concatenate([ws, drv, eq, lc]).astype(np.float32)
     assert len(blob) == TOTAL, (len(blob), TOTAL)
 
     here = os.path.dirname(__file__)
@@ -143,7 +200,8 @@ def main():
             f.write("  " + row + ",\n")
         f.write("};\n")
     print(f"wrote {cout}")
-    print(f"  WS[{WS_N}]  DRV[{DRV_N}]  BASS[{SHELF_N}x3]  TREBLE[{SHELF_N}x3]")
+    print(f"  WS[{WS_N}]  DRV[{DRV_N}]  EQ[{EQ_N}x{EQ_N}x{EQ_STRIDE}]  LC[{LC_N}x3]"
+          f"  total {TOTAL} words")
     print(f"  waveshaper range +/-{WS_RANGE}, "
           f"endpoints {ws[0]:.3f}..{ws[-1]:.3f}")
     print(f"  drive span {drv[0]:.3f}..{drv[-1]:.3f}")

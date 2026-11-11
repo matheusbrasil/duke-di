@@ -1,0 +1,16 @@
+{
+  "note": "Local author-registry overlay for the Duke DI build. The stomphacks ledger (third_party/stomphacks/ids/effect-authors.json) is gitignored and is clobbered by a re-clone or `git pull`, so our registered identity must live in OUR repo. tools/stage_build.sh merges these entries into the clone's ledger before invoking the build tool, which reads nickname->prefix from there (zd2_make_effect.py: author_prefix_table).",
+  "authors": [
+    {
+      "nickname": "matheusbrasil",
+      "name": "Matheus Brasil",
+      "low16": "0xa000-0xa03f",
+      "prefix": "MB",
+      "status": "assigned",
+      "effects": [
+        {"name": "FETCOMP", "id": "0100a000", "category": "DYNAMICS"},
+        {"name": "Duke DI", "id": "0400a001", "category": "PREAMP (MS-60B+)"}
+      ]
+    }
+  ]
+}

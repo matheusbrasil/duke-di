@@ -1,12 +1,13 @@
 {
   "name": "Duke DI",
-  "filename": "XXDUKE",
-  "id": "05001000",
+  "filename": "MBDUKE",
+  "author": "matheusbrasil",
+  "id": "0400A001",
   "allow_any_id": true,
   "version": "1.00",
   "display": "DUKE DI",
   "badge": "DK",
-  "description": "White-box 12AU7 preamp/DI after the Noble DI: two starved-heater triode stages, boost-only shelving EQ (bass 150 Hz, treble 3.5 kHz), switchable 90 Hz low-cut, White cathode follower, optional DI-transformer path. Clean, high-headroom, even-order voiced.",
+  "description": "White-box 12AU7 preamp/DI after the Noble DI: two starved-heater triode stages, an interactive passive FMV tone stack (Bass/Treble) derived by nodal analysis, switchable treble-dependent low-cut (~82-154 Hz), White cathode follower, optional DI-transformer path. Clean, high-headroom, even-order voiced.",
   "kernel": "duke.c",
   "scaffold": "cleanroom",
   "kernel_section": "text",
@@ -14,7 +15,7 @@
   "dspload": 60,
   "const_blob": {
     "symbol": "duke_tables",
-    "words": 648,
+    "words": 1164,
     "init": "tables.bin"
   },
   "params": [
@@ -28,13 +29,13 @@
       "name": "Bass",
       "max": 100,
       "default": 50,
-      "explanation": "Boost-only low shelf at 150 Hz (A250k, as built). Noon is flat; up adds weight."
+      "explanation": "Low end of the interactive passive FMV stack (BASS A250k rheostat). Noon is the natural voiced curve; up adds weight. Interacts with Treble."
     },
     {
       "name": "Treble",
       "max": 100,
       "default": 50,
-      "explanation": "Boost-only high shelf at 3.5 kHz (A250k, as built). Noon is flat; up adds air."
+      "explanation": "High end of the interactive passive FMV stack (TREBLE A250k, C6 270p). Noon is the natural voiced curve; up adds air. Interacts with Bass and sets the low-cut corner."
     },
     {
       "name": "Level",
@@ -47,7 +48,7 @@
       "name": "LoCut",
       "values": ["OFF", "ON"],
       "default": 0,
-      "explanation": "90 Hz low-cut, -6 dB/oct (the ROLLOFF switch). Tames sub-bass rumble."
+      "explanation": "Low-cut (the ROLLOFF switch): C8 4n7 into R18 220k, corner ~82-154 Hz depending on Treble. Tames sub-bass rumble."
     },
     {
       "name": "XFMR",

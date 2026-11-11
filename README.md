@@ -10,11 +10,12 @@ display.
 
 ## What it models
 
-Two **12AU7** triode stages on a high internal rail, a passive **boost-only
-shelving EQ** (bass 150 Hz, treble 3.5 kHz), a switchable **90 Hz low-cut**
-(-6 dB/oct), a **White cathode follower**, and an optional **JT-DB-EPC DI
-transformer** path. Clean, high-headroom, **even-order** voiced - the Noble's
-"harmonic warmth and natural compression without heavy overdrive".
+Two **12AU7** triode stages on a high internal rail, a passive **interactive
+FMV tone stack** (Bass + Treble, boost-from-noon), a switchable
+**treble-dependent low-cut** (~82..154 Hz, -6 dB/oct), a **White cathode
+follower**, and an optional **JT-DB-EPC DI transformer** path. Clean,
+high-headroom, **even-order** voiced - the Noble's "harmonic warmth and natural
+compression without heavy overdrive".
 
 Controls: **Gain** (added), **Bass**, **Treble**, **Level**, **LoCut**
 (OFF/ON), **XFMR** (OFF/ON).
@@ -27,13 +28,15 @@ Controls: **Gain** (added), **Bass**, **Treble**, **Level**, **LoCut**
   the C674x - **no divide, no libm, no allocation**. Every nonlinearity is a
   precomputed LUT (`tables.bin`) the kernel interpolates.
 
-Tier B is validated against Tier A: **7/7** characteristic checks pass (gain
-match **0.01 dB**, response within **0.17 dB**, even-order margin **+13.5 dB**).
+Tier B is validated against Tier A: **8/8** characteristic checks pass (gain
+match **0.09 dB**, response within **0.15 dB**, even-order margin **+12.0 dB**,
+tone-stack tilt **+17/+13 dB**, aliasing **-32 dBc**).
 
 ## Layout
 
 ```
-reference/python/   duke_ref.py (Tier A), tube.py (12AU7), bake_tables.py (LUTs)
+reference/python/   duke_ref.py (Tier A), tube.py (12AU7), tonestack.py (FMV
+                    MNA solver), bake_tables.py (LUTs)
 embedded/effects/duke/
     duke.c          the SAFE-DSP kernel
     approx.h        divide/call-free LUT helpers
@@ -55,7 +58,7 @@ tools/              check_env.py (toolchain gate)
 pip install numpy scipy            # if not present
 python3 reference/python/bake_tables.py     # bake LUTs + host twin
 bash    validation/build_host.sh            # gcc -> validation/host_duke
-python3 validation/ab_test.py               # 7/7 expected
+python3 validation/ab_test.py               # 8/8 expected
 python3 validation/check_safe_dsp.py        # SAFE-DSP source lint
 python3 reference/python/duke_ref.py        # Tier A character report
 ```
@@ -69,7 +72,7 @@ The one step this repo cannot run itself: the final blob needs TI's proprietary
 
 ```
 export ZOOM_TI_CGT=/path/to/ti-cgt-c6000_8.5.0.LTS
-cp embedded/effects/duke/* third_party/stomphacks/effects/duke/
+bash tools/stage_build.sh
 cd third_party/stomphacks && python3 tools/zd2_make_effect.py effects/duke/manifest.json
 ```
 
@@ -79,7 +82,7 @@ cd third_party/stomphacks && python3 tools/zd2_make_effect.py effects/duke/manif
 |-------------|-------|
 | Tier A reference + tube model | done, validated |
 | LUT baking (`tables.bin`) | done |
-| Tier B SAFE-DSP kernel | done, host-compiled, 7/7 A/B pass |
+| Tier B SAFE-DSP kernel | done, host-compiled, 8/8 A/B pass |
 | SAFE-DSP source lint | passing |
 | Build manifest | validates against stomphacks |
 | SPICE netlists | shipped (run on your ngspice/LTspice) |
