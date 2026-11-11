@@ -76,6 +76,10 @@ bash tools/stage_build.sh
 cd third_party/stomphacks && python3 tools/zd2_make_effect.py effects/duke/manifest.json
 ```
 
+For the full ordered procedure — TI CGT install → build → post-compile asm
+audit → `dspload` measurement → the binding safe-flash sequence — follow
+[`docs/05-build-and-flash.md`](docs/05-build-and-flash.md).
+
 ## Status
 
 | Deliverable | State |

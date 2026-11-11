@@ -52,6 +52,28 @@ def main() -> int:
         rows.append((f"py:{m}", have_mod(m),
                      "stomphacks build/pack tooling", True))
 
+    # Clone .venv: the build scripts (zd2_make_effect.py / build_zd2_from_asm.sh)
+    # hardcode .venv/bin/python3 with NO system fallback and invoke it for the
+    # icon, pack and validation steps. So even with cl6x present, a missing or
+    # dep-less clone .venv fails the build. tools/stage_build.sh bootstraps it.
+    venv_py = os.path.join(sh, ".venv",
+                           "Scripts" if os.name == "nt" else "bin",
+                           "python3")
+    venv_ok = False
+    if os.path.isfile(venv_py):
+        try:
+            import subprocess
+            venv_ok = subprocess.run(
+                [venv_py, "-c",
+                 "import construct,crcmod,elftools,PIL,mido"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            ).returncode == 0
+        except Exception:
+            venv_ok = False
+    rows.append(("clone .venv (build python)", venv_ok,
+                 "the cl6x build's pack/icon/validation steps "
+                 "(run tools/stage_build.sh to bootstrap it)", False))
+
     # SPICE reference (netlists are shipped as artifacts regardless)
     ng = shutil.which("ngspice") is not None
     rows.append(("ngspice", ng,

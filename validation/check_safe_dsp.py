@@ -90,8 +90,8 @@ def main():
         return 1
     print(f"SAFE-DSP lint OK: {', '.join(FILES)} - no divide/libm/alloc/"
           "static in live code")
-    print("NOTE: source-level only; final asm audit needs cl6x "
-          "(docs/04-zd2-port.md).")
+    print("NOTE: source-level only. After cl6x, run tools/audit_text_dis.py on "
+          "build/MBDUKE.text.dis for the asm-level gate (docs/05-build-and-flash.md).")
     return 0
 
 

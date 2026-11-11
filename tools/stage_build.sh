@@ -8,6 +8,12 @@
 #   2. merges ids/effect-authors.local.json (OUR tracked file) into the
 #      clone's ids/effect-authors.json, so the build tool can resolve our
 #      registered nickname->prefix (matheusbrasil -> MB).
+#   3. bootstraps the clone's .venv. Both build scripts
+#      (tools/zd2_make_effect.py, tools/build_zd2_from_asm.sh) hardcode
+#      .venv/bin/python3 with NO system fallback and call it during the
+#      pack/icon/validation steps, so a fresh clone fails there even with
+#      cl6x present. We create it (idempotent) from the clone's own
+#      requirements.txt.
 #
 # After staging, build with:
 #   export ZOOM_TI_CGT=/path/to/ti-cgt-c6000_8.5.0.LTS
@@ -58,3 +64,38 @@ print(f"merged author '{local['authors'][0]['nickname']}' "
 PY
 
 echo "done. now run zd2_make_effect.py (see header)."
+
+# 3. bootstrap the clone's .venv (the build scripts require it; see header)
+venv="$clone/.venv"
+venv_py="$venv/bin/python3"
+req="$clone/requirements.txt"
+if [ -x "$venv_py" ] && "$venv_py" -c "import construct,crcmod,elftools,PIL" 2>/dev/null; then
+  echo "clone .venv present and deps importable -> $venv_py"
+else
+  rm -rf "$venv"
+  echo "creating clone .venv (build scripts hardcode it) ..."
+  # Preferred path: a normal venv with pip, installing the clone's pinned deps.
+  if python3 -m venv "$venv" >/dev/null 2>&1 \
+     && "$venv_py" -m pip --version >/dev/null 2>&1; then
+    "$venv_py" -m pip install --quiet --upgrade pip >/dev/null 2>&1 || true
+    if [ -f "$req" ] && "$venv_py" -m pip install --quiet -r "$req"; then
+      echo "clone .venv ready (pip, requirements.txt) -> $venv_py"
+    else
+      echo "WARNING: pip install -r requirements.txt failed; see $req"
+    fi
+  else
+    # Fallback for hosts without ensurepip/python3-venv (no root to apt-install
+    # python3-venv). The build's deps are already importable system-wide, so a
+    # --system-site-packages venv WITHOUT pip exposes them to the hardcoded
+    # .venv/bin/python3 the build scripts call.
+    rm -rf "$venv"
+    if python3 -m venv --without-pip --system-site-packages "$venv" >/dev/null 2>&1 \
+       && "$venv_py" -c "import construct,crcmod,elftools,PIL" 2>/dev/null; then
+      echo "clone .venv ready (no pip; --system-site-packages fallback) -> $venv_py"
+    else
+      echo "WARNING: could not bootstrap $venv."
+      echo "         install python3-venv, or ensure construct/crcmod/pyelftools/"
+      echo "         Pillow/mido are importable, before the cl6x build."
+    fi
+  fi
+fi

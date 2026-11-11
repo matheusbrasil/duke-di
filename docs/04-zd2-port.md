@@ -123,3 +123,7 @@ before copying to the pedal.
 > The `.ZD2`/stomphacks formats are community-reverse-engineered. Field layouts
 > can change; re-verify against the current stomphacks and `zoom-zt2` tooling
 > before flashing, and keep a backup of your pedal's effect set.
+
+For the complete, copy-pasteable build-and-flash runbook (TI CGT setup, the
+post-compile SAFE-DSP asm audit, and the binding safe-flash sequence), see
+[`docs/05-build-and-flash.md`](05-build-and-flash.md).
