@@ -17,7 +17,9 @@ eyeball step. This script makes it a gate.
 
 WHAT IT CHECKS (inside the kernel function Fx_SFX_<sym> only)
 ------------------------------------------------------------
-  - B15 (the stack pointer): any use means a stack frame -> NOT SAFE-DSP.
+  - B15 (the stack pointer): any use means a stack frame -> NOT SAFE-DSP,
+    UNLESS the manifest sets allow_stack:true (stock-precedented), in which
+    case pass --allow-stack and B15 is permitted.
   - __c6xabi_* helper symbols (push_rts/pop_rts, divide/remainder, etc.):
     a call into the RTS -> a frame and/or a runtime call -> NOT SAFE-DSP.
   - explicit division/remainder helpers (__c6xdiv*, __c6xremi*, __divf, ...).
@@ -81,8 +83,12 @@ def scope_lines(lines, sym):
     return lines[start:end], want
 
 
-def audit(lines, sym=None):
-    """Return a list of (lineno, kind, text) violations within scope."""
+def audit(lines, sym=None, allow_stack=False):
+    """Return a list of (lineno, kind, text) violations within scope.
+
+    With allow_stack=True the kernel's manifest permits a stack frame
+    (stock-precedented), so B15 use is NOT a violation; the hard bans on
+    RTS-helper calls, divide helpers and foreign CALLs still apply."""
     scoped, label = scope_lines(lines, sym)
     if scoped is None:
         return [(-1, "scope", f"kernel symbol {label} not found in listing")]
@@ -93,7 +99,7 @@ def audit(lines, sym=None):
         l = raw.strip()
         if not l or _LABEL_RE.match(l):
             continue
-        if _B15_RE.search(l):
+        if not allow_stack and _B15_RE.search(l):
             viol.append((off, "stack", l))
         for m in _RTS_RE.finditer(l):
             viol.append((off, "rts-helper", l))
@@ -111,17 +117,20 @@ def audit(lines, sym=None):
     return viol
 
 
-def run_file(path, sym):
+def run_file(path, sym, allow_stack=False):
     try:
         lines = open(path, encoding="utf-8", errors="replace").read().splitlines()
     except OSError as e:
         print(f"audit_text_dis: cannot read {path}: {e}", file=sys.stderr)
         return 2
-    viol = audit(lines, sym)
+    viol = audit(lines, sym, allow_stack=allow_stack)
     scope = f"Fx_SFX_{sym}" if sym else "whole listing"
+    stackmode = " [stack allowed]" if allow_stack else ""
     if not viol:
-        print(f"SAFE-DSP asm audit OK: {path} ({scope}) - "
-              "no stack (B15), no RTS helper, no divide, no foreign call.")
+        print(f"SAFE-DSP asm audit OK: {path} ({scope}){stackmode} - "
+              + ("no RTS helper, no divide, no foreign call."
+                 if allow_stack else
+                 "no stack (B15), no RTS helper, no divide, no foreign call."))
         return 0
     print(f"SAFE-DSP asm audit FAILED: {path} ({scope})")
     for off, kind, text in viol:
@@ -183,6 +192,16 @@ def selftest():
     else:
         print(f"selftest FAIL: expected 3 in-scope stack hits, got {nstack}")
         ok = False
+    # allow_stack mode: B15 is permitted, but the rts-helper/divide/call bans
+    # still fire. The bad fixture must then report NO 'stack' and still catch
+    # the hard violations.
+    bad_as = audit(_BAD_FIXTURE.splitlines(), "DukeDI", allow_stack=True)
+    as_kinds = {k for _, k, _ in bad_as}
+    if "stack" not in as_kinds and {"rts-helper", "divide", "call"} <= as_kinds:
+        print("selftest: allow_stack permits B15, still catches calls OK")
+    else:
+        print(f"selftest FAIL: allow_stack kinds {sorted(as_kinds)}")
+        ok = False
     print("selftest PASS" if ok else "selftest FAILED")
     return 0 if ok else 1
 
@@ -194,6 +213,9 @@ def main(argv=None):
     ap.add_argument("--sym", default=None,
                     help="effect sym (e.g. DukeDI); scopes to Fx_SFX_<sym>. "
                          "Omit to audit the whole listing.")
+    ap.add_argument("--allow-stack", action="store_true",
+                    help="manifest has allow_stack:true - permit B15/stack use "
+                         "(stock-precedented); still ban RTS calls/divide/CALL")
     ap.add_argument("--selftest", action="store_true",
                     help="run built-in good/bad fixtures (no file needed)")
     a = ap.parse_args(argv)
@@ -201,7 +223,7 @@ def main(argv=None):
         return selftest()
     if not a.dis:
         ap.error("give a .dis path, or --selftest")
-    return run_file(a.dis, a.sym)
+    return run_file(a.dis, a.sym, allow_stack=a.allow_stack)
 
 
 if __name__ == "__main__":

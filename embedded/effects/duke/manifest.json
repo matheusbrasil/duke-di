@@ -11,6 +11,9 @@
   "kernel": "duke.c",
   "scaffold": "cleanroom",
   "kernel_section": "text",
+  "opt_level": 2,
+  "opt_for_space": null,
+  "allow_stack": true,
   "state_bytes": 128,
   "dspload": 60,
   "const_blob": {

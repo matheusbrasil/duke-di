@@ -17,7 +17,12 @@
 RGI G Gi {RGI}
 * Koren plate current
 E1 E1n 0 value={ (V(P,K)/KP) * LOG(1 + EXP(KP*(1/MU + V(Gi,K)/SQRT(KVB + V(P,K)*V(P,K))))) }
-Gp P K value={ (PWR(V(E1n),EX) + PWRS(V(E1n),EX)) / (2*KG1) }
+* The classic Koren form writes the half-wave plate current as
+* (PWR(E1,EX)+PWRS(E1,EX))/(2*KG1); PWR/PWRS are PSPICE/LTspice builtins
+* ngspice does not enable by default. That expression equals pow(E1,EX)/KG1
+* for E1>0 and 0 otherwise (a half-wave), so we write it with uramp()+pow(),
+* which ngspice and LTspice both evaluate identically.
+Gp P K value={ pow(uramp(V(E1n)), EX) / KG1 }
 * interelectrode capacitances
 Ccg Gi K {CCG}
 Cpg Gi P {CPG}

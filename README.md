@@ -65,9 +65,10 @@ python3 reference/python/duke_ref.py        # Tier A character report
 
 ## Build the flashable `.ZD2` (needs TI cl6x)
 
-The one step this repo cannot run itself: the final blob needs TI's proprietary
-**C6000 CGT 8.5.0** (`cl6x`). Everything up to it is done and verified
-(manifest validates, `sh_params.h` generates). See
+The final blob needs TI's free-but-proprietary **C6000 CGT 8.5.0** (`cl6x`,
+user-prefix install, no root). With it installed the build runs end to end and
+produces `MBDUKE.ZD2` (clean-room `verify_cleanroom` passes: leaf kernel, no
+runtime calls, loader-safe relocs). See
 [`docs/04-zd2-port.md`](docs/04-zd2-port.md):
 
 ```
@@ -89,9 +90,9 @@ audit → `dspload` measurement → the binding safe-flash sequence — follow
 | Tier B SAFE-DSP kernel | done, host-compiled, 8/8 A/B pass |
 | SAFE-DSP source lint | passing |
 | Build manifest | validates against stomphacks |
-| SPICE netlists | shipped (run on your ngspice/LTspice) |
+| SPICE netlists | shipped + run (ngspice `-b`, Bode exported) |
 | Docs (circuit → port) | done |
-| Final `.ZD2` blob | **handover**: needs `cl6x` |
+| Final `.ZD2` blob | **builds** with `cl6x` (MBDUKE.ZD2, verify_cleanroom green) |
 | On-hardware cycle check | **handover**: measure before flashing |
 
 ## Safety

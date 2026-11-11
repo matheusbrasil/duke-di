@@ -55,7 +55,7 @@
 #define Z_XFLP   11
 
 /* one transposed-direct-form-II first-order section: y = b0*x + z, z updated */
-static inline float tdf2(float x, float b0, float b1, float a1, float *z)
+FORCE_INLINE float tdf2(float x, float b0, float b1, float a1, float *z)
 {
     float y = b0 * x + *z;
     *z = b1 * x - a1 * y;
@@ -65,7 +65,7 @@ static inline float tdf2(float x, float b0, float b1, float a1, float *z)
 /* transposed-direct-form-II 3rd-order section (the interactive FMV stack).
  * c = {b0,b1,b2,b3,a1,a2,a3}; z[0..2] are this section's three state words.
  * Multiplies and adds only - SAFE-DSP compliant. */
-static inline float df3(float x, const float *c, float *z)
+FORCE_INLINE float df3(float x, const float *c, float *z)
 {
     float y = c[0] * x + z[0];
     z[0] = c[1] * x - c[4] * y + z[1];
@@ -76,7 +76,7 @@ static inline float df3(float x, const float *c, float *z)
 
 /* one 12AU7 stage: waveshaper + slow shared-rail sag compression.
  * `env` carries the per-channel sag envelope state (one float). */
-static inline float tube_stage(float u, float *env)
+FORCE_INLINE float tube_stage(float u, float *env)
 {
     float e = *env;
     float ax = u >= 0.0f ? u : -u;
@@ -87,7 +87,7 @@ static inline float tube_stage(float u, float *env)
 }
 
 /* White cathode follower + D3 grid clamp (no divide). */
-static inline float white_cf(float u, float *zhp)
+FORCE_INLINE float white_cf(float u, float *zhp)
 {
     float ucl = u > GRID_CLAMP ? GRID_CLAMP : u;
     float hi  = tdf2(ucl, CFHP_B0, CFHP_B1, CFHP_A1, zhp);  /* >33.9 Hz */
@@ -98,7 +98,7 @@ static inline float white_cf(float u, float *zhp)
 
 /* process one channel's 16-frame slice. `st` -> this channel's state block.
  * eqc = 7 FMV-stack coeffs {b0..b3,a1..a3}; lcc = 3 low-cut coeffs {b0,b1,a1}. */
-static inline float duke_sample(float x, float drive, const float *eqc,
+FORCE_INLINE float duke_sample(float x, float drive, const float *eqc,
                                 const float *lcc, float lowcut, float xfmr,
                                 float vol, float *st)
 {

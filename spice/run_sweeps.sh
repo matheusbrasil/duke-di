@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # run_sweeps.sh - produce the Duke DI SPICE reference curves.
 #
-# Requires ngspice (not installable in the build session; run this on your own
-# machine). LTspice users: open the .cir files directly, they are standard
-# SPICE netlists, and use .ac/.tran directives shown inside.
+# Requires ngspice (free: `apt install ngspice` / `brew install ngspice`, or a
+# no-root source build - see docs/05-build-and-flash.md). LTspice users: open
+# the .cir files directly, they are standard SPICE netlists, and use the
+# .ac/.tran directives shown inside. Verified with ngspice-36 and ngspice-47.
 #
 # Outputs (consumed by validation/compare_spice.py if you wire it up):
 #   validation/spice_gain_ac.txt   - gain-stage Bode (vdb, vp)

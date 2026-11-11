@@ -57,5 +57,6 @@ Rbyp T  nlc  {1e12*lowcut + 1e-3*(1-lowcut)}
 .control
   ac dec 50 10 100k
   wrdata ../validation/spice_tone_ac.txt vdb(T)
+  quit
 .endc
 .end

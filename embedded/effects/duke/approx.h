@@ -22,14 +22,24 @@
  * Stored as uint32 bit patterns; we read it as float. */
 extern const unsigned int duke_tables[];
 
-static inline float tbl(int i) {
+/* Force inlining: TI cl6x and gcc both treat `static inline` as a hint only
+ * and may leave larger helpers (df3, lowcut_of) as real CALLs, which the
+ * SAFE-DSP cleanroom link forbids. always_inline guarantees the whole chain
+ * collapses into the single leaf audio function. */
+#if defined(__TI_COMPILER_VERSION__) || defined(__GNUC__) || defined(__clang__)
+#define FORCE_INLINE static inline __attribute__((always_inline))
+#else
+#define FORCE_INLINE static inline
+#endif
+
+FORCE_INLINE float tbl(int i) {
     /* type-pun a table word to float without a call or a union-in-memory */
     const float *f = (const float *)duke_tables;
     return f[i];
 }
 
 /* Clamp helper (branches compile to compares + selects, no call). */
-static inline float clampf(float x, float lo, float hi) {
+FORCE_INLINE float clampf(float x, float lo, float hi) {
     if (x < lo) x = lo;
     if (x > hi) x = hi;
     return x;
@@ -38,7 +48,7 @@ static inline float clampf(float x, float lo, float hi) {
 /* Linear interpolation of a 1-D table of length n, base word `off`, over an
  * already-scaled fractional index `fidx` in [0, n-1]. No divide: the caller
  * scales with a constant reciprocal-step from tables_layout.h. */
-static inline float lut1(int off, int n, float fidx) {
+FORCE_INLINE float lut1(int off, int n, float fidx) {
     fidx = clampf(fidx, 0.0f, (float)(n - 1) - 1e-4f);
     int i = (int)fidx;              /* SPTRUNC on C674x, inline */
     float fr = fidx - (float)i;
@@ -49,13 +59,13 @@ static inline float lut1(int off, int n, float fidx) {
 
 /* 12AU7 waveshaper: static plate curve, sampled over [-WS_RANGE, WS_RANGE].
  * index = (u + WS_RANGE) * WS_ISTEP, WS_ISTEP a compile-time reciprocal. */
-static inline float tube_shape(float u) {
+FORCE_INLINE float tube_shape(float u) {
     float fidx = (u + WS_RANGE) * WS_ISTEP;
     return lut1(OFF_WS, WS_N, fidx);
 }
 
 /* GAIN knob (0..1) -> input drive factor. */
-static inline float drive_of(float gain01) {
+FORCE_INLINE float drive_of(float gain01) {
     return lut1(OFF_DRV, DRV_N, gain01 * DRV_ISTEP);
 }
 
@@ -63,7 +73,7 @@ static inline float drive_of(float gain01) {
  * for the current (treble, bass) knobs, via 2-D bilinear interpolation of the
  * EQ_N x EQ_N grid. Row-major cell(ti,bj); no divide (EQ_ISTEP, strides are
  * compile-time constants). Writes 7 floats into `c`. */
-static inline void eq_of(float treb01, float bass01, float *c) {
+FORCE_INLINE void eq_of(float treb01, float bass01, float *c) {
     float ft = clampf(treb01 * EQ_ISTEP, 0.0f, (float)(EQ_N - 1) - 1e-4f);
     float fb = clampf(bass01 * EQ_ISTEP, 0.0f, (float)(EQ_N - 1) - 1e-4f);
     int ti = (int)ft, bj = (int)fb;
@@ -81,7 +91,7 @@ static inline void eq_of(float treb01, float bass01, float *c) {
 }
 
 /* Interpolated ROLLOFF low-cut {b0,b1,a1} for the current treble knob. */
-static inline void lowcut_of(float treb01, float *b0, float *b1, float *a1) {
+FORCE_INLINE void lowcut_of(float treb01, float *b0, float *b1, float *a1) {
     float fidx = clampf(treb01 * LC_ISTEP, 0.0f, (float)(LC_N - 1) - 1e-4f);
     int i = (int)fidx;
     float fr = fidx - (float)i;

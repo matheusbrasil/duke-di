@@ -28,6 +28,7 @@ third_party/chowdsp_wdf/
 
 # TI toolchain / proprietary
 ti-cgt-*/
+ti_cgt_c6000_*_installer.bin
 
 # Editor
 .vscode/
