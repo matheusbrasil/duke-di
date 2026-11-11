@@ -1,0 +1,59 @@
+{
+  "name": "Duke DI",
+  "filename": "XXDUKE",
+  "id": "05001000",
+  "allow_any_id": true,
+  "version": "1.00",
+  "display": "DUKE DI",
+  "badge": "DK",
+  "description": "White-box 12AU7 preamp/DI after the Noble DI: two starved-heater triode stages, boost-only shelving EQ (bass 150 Hz, treble 3.5 kHz), switchable 90 Hz low-cut, White cathode follower, optional DI-transformer path. Clean, high-headroom, even-order voiced.",
+  "kernel": "duke.c",
+  "scaffold": "cleanroom",
+  "kernel_section": "text",
+  "state_bytes": 128,
+  "dspload": 60,
+  "const_blob": {
+    "symbol": "duke_tables",
+    "words": 648,
+    "init": "tables.bin"
+  },
+  "params": [
+    {
+      "name": "Gain",
+      "max": 100,
+      "default": 40,
+      "explanation": "Input drive into the first 12AU7. Low = clean and open; high = starved-tube compression and even-order grit. A deliberate addition - the circuit has no gain control."
+    },
+    {
+      "name": "Bass",
+      "max": 100,
+      "default": 50,
+      "explanation": "Boost-only low shelf at 150 Hz (A250k, as built). Noon is flat; up adds weight."
+    },
+    {
+      "name": "Treble",
+      "max": 100,
+      "default": 50,
+      "explanation": "Boost-only high shelf at 3.5 kHz (A250k, as built). Noon is flat; up adds air."
+    },
+    {
+      "name": "Level",
+      "max": 100,
+      "default": 80,
+      "curve": "stock_vol",
+      "explanation": "Output level. 80 is unity gain, 100 is +3.5 dB."
+    },
+    {
+      "name": "LoCut",
+      "values": ["OFF", "ON"],
+      "default": 0,
+      "explanation": "90 Hz low-cut, -6 dB/oct (the ROLLOFF switch). Tames sub-bass rumble."
+    },
+    {
+      "name": "XFMR",
+      "values": ["OFF", "ON"],
+      "default": 0,
+      "explanation": "DI-transformer path (JT-DB-EPC). OFF is the transformerless 1/4-inch output; ON adds the XLR transformer weight and low-end core saturation."
+    }
+  ]
+}

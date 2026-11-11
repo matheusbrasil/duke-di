@@ -1,0 +1,37 @@
+# Build / generated
+embedded/effects/duke/build/*
+# ...but keep the generated param header so the host harness builds standalone
+!embedded/effects/duke/build/sh_params.h
+reference/cpp/build/
+reference/faust/*.cpp
+__pycache__/
+*.pyc
+*.o
+*.obj
+*.out
+
+# Validation artifacts (regenerated)
+validation/host_duke
+validation/out/
+validation/spice_*_ac.txt
+*.wav
+*.npz
+
+# SPICE run output (netlists are tracked; results are not)
+spice/out/
+*.raw
+
+# Vendored upstreams are large; keep them out of the tree history.
+third_party/stomphacks/
+third_party/zoom-zt2/
+third_party/chowdsp_wdf/
+
+# TI toolchain / proprietary
+ti-cgt-*/
+
+# Editor
+.vscode/
+*.swp
+
+# Windows alternate-data-stream cruft
+*:Zone.Identifier

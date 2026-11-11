@@ -1,0 +1,46 @@
+* gain_stage.cir - one 12AU7 common-cathode gain stage (Duke DI front end).
+*
+* REFERENCE netlist for validating the Tier A DSP tube model. Values follow
+* the BOM-derived stage analysis in docs/01-circuit-analysis.md. The real
+* Nobelium runs starved heaters on a MOSFET-regulated rail; here we use a
+* clean DC rail and the nominal 12AU7 model, then compare the SMALL-SIGNAL
+* gain and the harmonic structure against reference/python/tube.py.
+*
+* Two analyses:
+*   AC   : magnitude/phase of the stage (Bode) -> export mag(V(out))
+*   TRAN : 1 kHz drive for THD (run .four / FFT on V(out))
+*
+* Run:   ngspice -b gain_stage.cir     (see run_sweeps.sh)
+
+.include 12au7.lib
+
+* ---- supply and bias ------------------------------------------------------
+VB    hv    0    DC 180
+Rp    hv    p    100k         ; plate load (220k//next-stage approx in doc)
+Rk    k     0    1.5k         ; cathode self-bias (R14/15/16 class)
+Ck    k     0    220u         ; cathode bypass (C14) - full bypass in band
+Rg    g     0    1Meg         ; grid leak (R12/19/25)
+
+* ---- device --------------------------------------------------------------
+X1    p     g     k    12AU7
+
+* ---- input coupling ------------------------------------------------------
+Vin   in    0     DC 0 AC 1  SIN(0 0.1 1k)
+Cin   in    g     100n        ; input coupling (C9/C11 class)
+
+* ---- output coupling / load ----------------------------------------------
+Cout  p     out   100n        ; output coupling
+Rload out   0     220k        ; following-stage input impedance
+
+.control
+  ac dec 50 10 100k
+  wrdata ../validation/spice_gain_ac.txt vdb(out) vp(out)
+  tran 2u 40m 0 2u
+  linearize
+  fft v(out)
+  * four reports THD of V(out) at the fundamental
+  * (ngspice prints to stdout; redirect in run_sweeps.sh)
+  print onoise_total
+.endc
+.four 1k v(out)
+.end

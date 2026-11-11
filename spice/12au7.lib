@@ -1,0 +1,25 @@
+* 12au7.lib - Koren triode model for the 12AU7 / ECC82 (one triode).
+*
+* Norman Koren's triode equation (public, widely republished). Parameters
+* below are the commonly used 12AU7 set. This is a REFERENCE device model for
+* validating the Duke DI DSP against the analog stage; it is not a Zoom/Noble
+* asset. Verify against a tube you measure if you need tighter fidelity.
+*
+* Terminals: Plate (P) Grid (G) Cathode (K)
+*
+*   Ep  = plate-cathode voltage       Eg = grid-cathode voltage
+*   E1  = Koren intermediate          Ip = plate current
+*
+* Usage:  X1 plate grid cathode 12AU7
+.subckt 12AU7 P G K
++ params: MU=21.5 EX=1.3 KG1=1180 KP=84 KVB=300 RGI=2000 CCG=1.6p CPG=1.5p CCP=0.4p
+* grid current path (keeps bias solver honest when the grid goes positive)
+RGI G Gi {RGI}
+* Koren plate current
+E1 E1n 0 value={ (V(P,K)/KP) * LOG(1 + EXP(KP*(1/MU + V(Gi,K)/SQRT(KVB + V(P,K)*V(P,K))))) }
+Gp P K value={ (PWR(V(E1n),EX) + PWRS(V(E1n),EX)) / (2*KG1) }
+* interelectrode capacitances
+Ccg Gi K {CCG}
+Cpg Gi P {CPG}
+Ccp P K {CCP}
+.ends 12AU7

@@ -1,0 +1,45 @@
+* tone_eq.cir - Duke DI passive EQ + low-cut (behavioral reference).
+*
+* Reproduces the SPECIFIED response of the Noble/Nobelium tone network so the
+* DSP shelves can be checked against it:
+*   - boost-only LOW shelf  centered 150 Hz   (BASS, A250k)
+*   - boost-only HIGH shelf centered 3.5 kHz  (TREBLE, A250k)
+*   - switchable 90 Hz low-cut, -6 dB/oct     (ROLLOFF)
+* These are first-order RC realizations chosen to hit the published corners;
+* the exact node-for-node pot wiring is in docs/01-circuit-analysis.md and is
+* still being reconciled against the schematic image (docs/assumptions.md).
+*
+* Run:   ngspice -b tone_eq.cir   -> writes ../validation/spice_tone_ac.txt
+*
+* Sweep both pots at max boost here (set the .param values 0..1 to explore).
+
+.param bass=1.0 treb=1.0 lowcut=1
+
+Vin  in 0 AC 1 DC 0
+
+* ---- 90 Hz low-cut: series C into 1M, fc = 1/(2*pi*R*C) ~ 90 Hz ----------
+* C = 1/(2*pi*1Meg*90) ~ 1.77 nF ; switch emulated by shorting Clc when off.
+Clc  in n1  1.77n
+Rlc  n1 0   1Meg
+* when lowcut=0, bypass the cap with a near-short (set via .param on rebuild)
+Rbyp in n1  {1e12*(1-lowcut) + 1e-3*lowcut}   ; huge when on, ~short when off
+
+* ---- low shelf (150 Hz), boost-only: parallel R-C shelving --------------
+* Shelf built as a first-order high-pass-shunt around a series R; bass raises
+* LF by routing more LF through. fc = 1/(2*pi*R*C).
+Rs1  n1 out 10k
+* bass boost branch: R selects boost depth (bass param scales conductance)
+Rb   n1 out {10k/(0.05 + 0.95*bass)}
+Cb   n1 nb  106n            ; 1/(2*pi*10k*106n) ~ 150 Hz
+Rbb  nb out 1
+* ---- high shelf (3.5 kHz), boost-only -----------------------------------
+Ct   n1 nt  4.5n            ; 1/(2*pi*10k*4.5n) ~ 3.5 kHz
+Rt   nt out {10k/(0.05 + 0.95*treb)}
+
+Rload out 0 220k
+
+.control
+  ac dec 50 10 100k
+  wrdata ../validation/spice_tone_ac.txt vdb(out)
+.endc
+.end
