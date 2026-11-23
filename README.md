@@ -89,4 +89,13 @@ MS-60B+ firmware 1.20 via the StompHacks fail-closed installer. The resulting
 by the pedal. `dspload: 128` is conservative declaration metadata, **not** a
 hardware cycle measurement; do not treat it as a measured DSP percentage.
 
+## Download a ready-to-install release
+
+Users who do not intend to build the project should use the versioned package
+in [`releases/Duke-DI-v1.12`](releases/Duke-DI-v1.12). It contains the exact
+`MBDUKE.ZD2` **and** `MBDUKE.ZIC` pair validated on the pedal, plus SHA-256
+hashes and an installation guide. Download
+[`Duke-DI-v1.12-MS60BPlus.zip`](releases/Duke-DI-v1.12-MS60BPlus.zip) from the
+matching Git tag; do not rename or separate the two files.
+
 Built on the [StompHacks](https://github.com/thammer/stomphacks) cleanroom ABI.
