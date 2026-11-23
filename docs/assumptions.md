@@ -39,10 +39,13 @@ resolved them, and the model now reflects the actual circuit.
 
 - **Pot travel laws.** TREBLE remains the documented A250k exponential audio
   taper (~15% resistance at mid-rotation). BASS uses a separate monotone,
-  capture-calibrated law: full-rate Noble NAM A2 captures put its effective
+  capture-calibrated law: the [bassgyh Noble Preamp A2 captures on
+  TONE3000](https://www.tone3000.com/tones/noble-preamp-104776) put its effective
   rheostat resistance at 2.17% around 9 o'clock and 5.88% at noon. This keeps
   the BOM-derived topology and maximum range while matching the measured
   control feel; it replaces the previous unmeasured shared 15%-at-noon law.
+  The NAM captures are external comparison references only and are not stored
+  or redistributed by this project.
 - **Plate output impedance `PLATE_ZOUT = 7.4k`** (rp of a 12AU7 ~7.7k || R9
   220k) feeds the stack as its source resistance. The schematic has R15 1k5
   as a series grid stopper but no 1 Mohm V1A grid leak; `TONE_LOAD` is thus a

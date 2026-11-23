@@ -41,12 +41,15 @@ the bass/interface chain.
 
 ## Evidence and limits
 
-The NAM analysis is real: the A2 models were executed and their small-signal
-frequency responses measured. The host A/B tests are real too, but compare the
-embedded kernel with this repository's Tier-A circuit reference; they are not a
-sample-for-sample NAM null test and are not a laboratory measurement of a
-physical Nobelium. See [`docs/03-validation.md`](docs/03-validation.md) and
-[`docs/assumptions.md`](docs/assumptions.md) for the boundary of each claim.
+The NAM analysis is real: the A2 models from [bassgyh's Noble Preamp capture
+set on TONE3000](https://www.tone3000.com/tones/noble-preamp-104776) were
+executed and their small-signal frequency responses measured. The host A/B
+tests are real too, but compare the embedded kernel with this repository's
+Tier-A circuit reference; they are not a sample-for-sample NAM null test and
+are not a laboratory measurement of a physical Nobelium. The NAM files are
+comparison references only: they are neither embedded, trained on, nor
+redistributed by this project. See [`docs/03-validation.md`](docs/03-validation.md)
+and [`docs/assumptions.md`](docs/assumptions.md) for the boundary of each claim.
 
 ## Project layout
 

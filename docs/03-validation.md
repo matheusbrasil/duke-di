@@ -5,6 +5,24 @@ circuit theory and the device model, **(B)** the shipped Tier B kernel against
 Tier A (A/B, host-compiled), and **(C)** SPICE reference curves against the
 analog stage. (C) needs ngspice/LTspice on your machine; (A) and (B) run here.
 
+## External NAM comparison reference
+
+Control-law calibration also used the five A2-Full captures published by
+**bassgyh** as [Noble Preamp on TONE3000](https://www.tone3000.com/tones/noble-preamp-104776):
+`Noble Flat`, `Noble B9`, `Noble B12`, `Noble B9 T12`, and `Noble B12 T9`.
+The listing identifies these as captures of a Noble Bass Preamp at specific
+knob settings, made using a sweep/reamp workflow. We executed the supplied A2
+models locally and measured low-level sine frequency response relative to
+`Noble Flat`; the resulting Bass effective-wiper observations informed the
+monotone Bass taper in `tonestack.py`.
+
+This is a **comparison/calibration reference**, not a training set or a source
+for the shipped audio algorithm. No NAM model, capture audio, model weights or
+derived copy of the capture is included in this repository or release ZIP. The
+test does not establish a sample-for-sample match, THD match or physical-unit
+equivalence: capture interface gain, input source and individual tube variance
+remain uncontrolled.
+
 ## A - Tier A reference (desktop golden model)
 
 `reference/python/duke_ref.py` + `tube.py`. Validated characteristics:
