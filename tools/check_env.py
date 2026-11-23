@@ -9,6 +9,7 @@ executable reach and documented as a handover step.
 """
 from __future__ import annotations
 import importlib
+import glob
 import os
 import shutil
 import sys
@@ -34,8 +35,14 @@ def main() -> int:
     rows.append(("python3", True, "everything", True))
     for m in ("numpy", "scipy", "matplotlib"):
         rows.append((f"py:{m}", have_mod(m), "Tier A reference + validation math", True))
-    rows.append(("g++", shutil.which("g++") is not None,
-                 "host harness (gcc-compiled kernel A/B test)", True))
+    msvc = glob.glob(r"C:\\Program Files (x86)\\Microsoft Visual Studio\\*\\*\\VC\\Tools\\MSVC\\*\\bin\\Hostx64\\x64\\cl.exe")
+    host_cc = (shutil.which("g++") or shutil.which("gcc") or
+               shutil.which("clang") or shutil.which("cl") or
+               (r"C:\\Program Files\\LLVM\\bin\\clang.exe"
+                if os.path.isfile(r"C:\\Program Files\\LLVM\\bin\\clang.exe")
+                else None) or (msvc[0] if msvc else None))
+    rows.append(("host C compiler (gcc/clang/MSVC)", host_cc is not None,
+                 "host harness (portable-C kernel A/B test)", True))
     rows.append(("cmake", shutil.which("cmake") is not None
                  or have_mod("cmake"),
                  "optional C++ Tier A build", False))
@@ -56,9 +63,12 @@ def main() -> int:
     # hardcode .venv/bin/python3 with NO system fallback and invoke it for the
     # icon, pack and validation steps. So even with cl6x present, a missing or
     # dep-less clone .venv fails the build. tools/stage_build.sh bootstraps it.
+    # Windows venvs ship Scripts/python.exe; POSIX venvs ship bin/python3.
+    # Do not use "Scripts/python3" here: it does not exist in a standard
+    # Windows venv and made a valid Windows build environment look broken.
     venv_py = os.path.join(sh, ".venv",
                            "Scripts" if os.name == "nt" else "bin",
-                           "python3")
+                           "python.exe" if os.name == "nt" else "python3")
     venv_ok = False
     if os.path.isfile(venv_py):
         try:
@@ -83,7 +93,8 @@ def main() -> int:
     # Out-of-scope-to-run: the final on-target blob
     ti = os.environ.get("ZOOM_TI_CGT",
                         "/Applications/ti/ti-cgt-c6000_8.5.0.LTS")
-    cl6x = os.path.isfile(os.path.join(ti, "bin", "cl6x"))
+    cl6x_name = "cl6x.exe" if os.name == "nt" else "cl6x"
+    cl6x = os.path.isfile(os.path.join(ti, "bin", cl6x_name))
     rows.append(("TI C6000 cl6x", cl6x,
                  "compiling the final .ZD2 blob (HANDOVER step, see docs/04)",
                  False))

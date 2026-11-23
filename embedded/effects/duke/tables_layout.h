@@ -35,17 +35,15 @@
 #define EQ_STRIDE   7
 #define EQ_ISTEP    ((float)(EQ_N - 1))    /* index = knob01 * EQ_ISTEP */
 
-/* ---- ROLLOFF low-cut: TREBLE-dependent corner (C8 4n7 into R18 220k, with
- * the TREBLE wiper Zout in series -> ~82..154 Hz). 1-D grid over treble;
- * each row = {b0,b1,a1} of a first-order high-pass.                         */
-#define LC_N        17
-#define LC_ISTEP    ((float)(LC_N - 1))
+/* ---- ROLLOFF on: C8/R18 with both-pot-dependent wiper source impedance. */
+#define LC_STRIDE   3
 
 /* ---- word offsets into duke_tables[] ---------------------------------- */
 #define OFF_WS       0
-#define OFF_DRV      (OFF_WS  + WS_N)
+#define OFF_CUR      (OFF_WS  + WS_N)
+#define OFF_DRV      (OFF_CUR + WS_N)
 #define OFF_EQ       (OFF_DRV + DRV_N)
 #define OFF_LC       (OFF_EQ  + EQ_N * EQ_N * EQ_STRIDE)
-#define DUKE_TABLES_WORDS (OFF_LC + LC_N * 3)
+#define DUKE_TABLES_WORDS (OFF_LC + EQ_N * EQ_N * LC_STRIDE)
 
 #endif /* DUKE_TABLES_LAYOUT_H */

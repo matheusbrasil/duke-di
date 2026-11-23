@@ -23,7 +23,7 @@ fi
 echo "== gain stage (Bode + THD) =="
 ngspice -b gain_stage.cir
 
-echo "== tone/EQ (Bode) =="
+echo "== tone/EQ + post-ROLLOFF HPF (Bode) =="
 ngspice -b tone_eq.cir
 
 echo "done. Curves in validation/spice_*_ac.txt"

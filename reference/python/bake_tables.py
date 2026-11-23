@@ -9,9 +9,10 @@ Writes: embedded/effects/duke/tables.bin  (little-endian float32 words)
 
 Layout (must match tables_layout.h):
   [OFF_WS  .. +WS_N)                 12AU7 quiescent waveshaper over [-8, +8]
+  [OFF_CUR .. +WS_N)                12AU7 plate-current delta over [-8, +8]
   [OFF_DRV .. +DRV_N)               GAIN -> drive taper
   [OFF_EQ  .. +EQ_N*EQ_N*7)         FMV tone stack {b0..b3,a1..a3} 2-D grid
-  [OFF_LC  .. +LC_N*3)              ROLLOFF low-cut {b0,b1,a1} vs treble
+  [OFF_LC  .. +EQ_N*EQ_N*3)         C8/R18 HPF {b0,b1,a1} over both pots
 """
 from __future__ import annotations
 import struct
@@ -25,12 +26,13 @@ WS_N, WS_RANGE = 513, 8.0
 DRV_N = 33
 EQ_N = 9
 EQ_STRIDE = 7
-LC_N = 17
+LC_STRIDE = 3
 OFF_WS = 0
-OFF_DRV = OFF_WS + WS_N
+OFF_CUR = OFF_WS + WS_N
+OFF_DRV = OFF_CUR + WS_N
 OFF_EQ = OFF_DRV + DRV_N
 OFF_LC = OFF_EQ + EQ_N * EQ_N * EQ_STRIDE
-TOTAL = OFF_LC + LC_N * 3
+TOTAL = OFF_LC + EQ_N * EQ_N * LC_STRIDE
 
 # Tier B runs at base rate (no oversampling). Coeffs are baked at FS.
 FS = d.FS
@@ -42,15 +44,21 @@ def waveshaper_table():
     return st.shape(u, st.vk0).astype(np.float32)
 
 
+def current_table():
+    st = d.stage()
+    u = np.linspace(-WS_RANGE, WS_RANGE, WS_N)
+    return st.current_delta(u, st.vk0).astype(np.float32)
+
+
 def drive_table():
     g = np.linspace(0.0, 1.0, DRV_N)
-    return (d.CAL_DRIVE_MIN * (d.CAL_DRIVE_MAX / d.CAL_DRIVE_MIN) ** g).astype(np.float32)
+    return (d.INPUT_MIN * (d.INPUT_MAX / d.INPUT_MIN) ** g).astype(np.float32)
 
 
 def _eq_cell(n_treble, n_bass):
     """One grid cell: {b0,b1,b2,b3,a1,a2,a3}, makeup folded into numerator."""
     wt = ts.taper(n_treble)
-    wb = ts.taper(n_bass)
+    wb = ts.bass_taper(n_bass)
     b, a = ts.design_digital(wt, wb, FS)          # length 4 each, a0=1
     b = np.asarray(b) * d.TONE_MAKEUP
     a = np.asarray(a)
@@ -73,6 +81,11 @@ def eq_grid_table():
 
 def _poles_radius(coeffs7):
     a = np.concatenate([[1.0], coeffs7[4:7]])
+    return float(np.max(np.abs(np.roots(a))))
+
+
+def _poles_radius_n(coeffs, order):
+    a = np.concatenate([[1.0], coeffs[order + 1:2 * order + 1]])
     return float(np.max(np.abs(np.roots(a))))
 
 
@@ -99,18 +112,26 @@ def _assert_eq_stable(grid):
 
 
 def lowcut_table():
-    """ROLLOFF high-pass {b0,b1,a1} vs TREBLE. Corner fc = 1/(2pi(Zout+R18)C8),
-    Zout = TREBLE wiper output impedance (bass fixed at noon for the Zout est;
-    the dependence is treble-dominated)."""
-    rows = []
-    wb = ts.taper(0.5)
-    for i in range(LC_N):
-        wt = ts.taper(i / (LC_N - 1))
-        rs = ts.zout_T(wt, wb)
-        fc = 1.0 / (2.0 * np.pi * (rs + d.LOWCUT_R18) * d.LOWCUT_C8)
-        b, a = d.bilinear_hpf(fc, FS)
-        rows += [b[0] / a[0], b[1] / a[0], a[1] / a[0]]
-    return np.array(rows, dtype=np.float32)
+    """C8/R18 first-order section with the physical wiper Zout at both pots.
+
+    A full fourth-order fit is used by Tier A for analysis, but directly
+    interpolating its coefficients can destabilise a fixed-point DSP section.
+    This factorisation retains the component-derived corner while keeping the
+    interpolated embedded poles provably inside the unit circle.
+    """
+    grid = np.zeros((EQ_N, EQ_N, LC_STRIDE))
+    for ti in range(EQ_N):
+        for bj in range(EQ_N):
+            wt = ts.taper(ti / (EQ_N - 1))
+            wb = ts.bass_taper(bj / (EQ_N - 1))
+            rs = ts.zout_T(wt, wb)
+            fc = 1.0 / (2.0 * np.pi * (220e3 + rs) * 4.7e-9)
+            b, a = d.bilinear_hpf(fc, FS)
+            grid[ti, bj] = [b[0] / a[0], b[1] / a[0], a[1] / a[0]]
+    worst = float(np.max(np.abs(grid[:, :, 2])))
+    assert worst < 1.0, f"ROLLOFF pole unstable: {worst}"
+    print(f"  ROLLOFF grid stability gate: max pole radius {worst:.5f} (< 1 OK)")
+    return grid.reshape(-1).astype(np.float32)
 
 
 def _tdf2_hpf(fc):
@@ -133,8 +154,6 @@ def write_fixed_header():
         "DC2":    _tdf2_hpf(3.18),     # C9 coupling
         "CFHP":   _tdf2_hpf(33.9),     # White CF lower-tube rolloff
         "OUTHP":  _tdf2_hpf(4.02),     # C12 output
-        "XFHP":   _tdf2_hpf(60.0),     # transformer LF/HF split
-        "XFLP":   _tdf2_lpf(18000.0),  # transformer HF leakage rolloff
     }
     here = os.path.dirname(__file__)
     out = os.path.normpath(os.path.join(
@@ -168,11 +187,12 @@ def write_fixed_header():
 def main():
     write_fixed_header()
     ws = waveshaper_table()
+    cur = current_table()
     drv = drive_table()
     eq = eq_grid_table()
     lc = lowcut_table()
 
-    blob = np.concatenate([ws, drv, eq, lc]).astype(np.float32)
+    blob = np.concatenate([ws, cur, drv, eq, lc]).astype(np.float32)
     assert len(blob) == TOTAL, (len(blob), TOTAL)
 
     here = os.path.dirname(__file__)
@@ -200,7 +220,7 @@ def main():
             f.write("  " + row + ",\n")
         f.write("};\n")
     print(f"wrote {cout}")
-    print(f"  WS[{WS_N}]  DRV[{DRV_N}]  EQ[{EQ_N}x{EQ_N}x{EQ_STRIDE}]  LC[{LC_N}x3]"
+    print(f"  WS[{WS_N}] CUR[{WS_N}] DRV[{DRV_N}] EQ[{EQ_N}x{EQ_N}x{EQ_STRIDE}] LC[{EQ_N}x{EQ_N}x{LC_STRIDE}]"
           f"  total {TOTAL} words")
     print(f"  waveshaper range +/-{WS_RANGE}, "
           f"endpoints {ws[0]:.3f}..{ws[-1]:.3f}")

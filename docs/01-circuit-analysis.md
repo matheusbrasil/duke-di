@@ -5,25 +5,37 @@ White-box decomposition of the **Conspiracy to Commit Electronics "Nobelium"**
 BOM. The pedal is an all-tube, clean-focused bass preamp/DI: two 12AU7 triode
 stages on a high internal rail, a passive interactive FMV tone stack
 (Bass + Treble), a switchable low-cut, and a transformer-balanced XLR output.
+The transformer-balanced branch is documented as physical-circuit context only;
+it is not emulated by this MS-60B+ effect.
 
 The high-voltage rail (MOSFET-regulated ~250 V from a boost converter: M1
 IRF740, U1 NE555, L1 100 uH, D1-D3) and the heater supply are **power**, not
 audio. We model **only the audio path**. See `assumptions.md` for the safety
 note on the HV section - do not probe it live.
 
+## Implemented output topology
+
+The physical Nobelium has independently switchable outputs. The MS-60B+ build
+intentionally implements only the complete **1/4-inch PREAMP** path, because
+the pedal cannot reproduce XLR balance, isolation or ground lift:
+
+```
+V1B -> FMV tone stack -> ROLLOFF -> V1A -> V2A/V2B White follower -> C12/R22 -> 1/4"
+```
+
+V1B and V1A are the gain stages of the first 12AU7; V2A/V2B are the 1/4"
+output buffer. This is the single path exposed by the DSP effect.
+
 ## Stage decomposition
 
 | # | Stage | Key parts (BOM) | Function | Corner / gain |
 |---|-------|-----------------|----------|---------------|
-| 0 | Input | R17 10M, C grid | 10 MΩ input Z, no loading | flat (piezo/passive friendly) |
-| 1 | V1B gain | V1 12AU7, Rk 1k5, Rp(220k class), Ck | first triode, even-order curvature | small-signal ~16x, soft compress |
+| 0 | Input | R14 1k5, R17 10M | 10 MΩ input Z, grid stopper | flat (piezo/passive friendly) |
+| 1 | V1B gain | V1B 12AU7, R24 1k5, R9 220k, C13/C14 | first triode, even-order curvature | small-signal ~16x, soft compress |
 | 2 | Tone EQ | R13 47k, C6 270p, C10/C11 100n, BASS/TREBLE A250k, R21 2k7 | interactive FMV stack | 3rd-order, setting-dependent (see below) |
-| 3 | Low-cut | ROLLOFF SPDT, C8 4n7 into R18 220k + wiper Zout | sub-bass control | treble-dependent **~82..154 Hz, -6 dB/oct** |
-| 4 | V1A gain | V2/V1 12AU7 second triode | second stage, more curvature | interstage ~2.2x |
-| 5 | Coupling | C7/C9/C10/C11 100n, VOLUME A250k | DC blocks + level | HPFs 3-10 Hz |
-| 6 | White CF | V2 White cathode follower, D3 clamp | low-Z drive, grid clamp 0.6 V | HF/LF split ~34 Hz |
-| 7 | Output HPF | C13 1u / output network | final DC block | ~4 Hz |
-| 8 | DI xfmr | X1 JT-DB-EPC, R1 51R, C1 10n | balanced XLR, LF weight | LF core sat + HF rolloff |
+| 3 | Low-cut | ROLLOFF SPDT, C8 4n7 into R18 220k | common sub-bass control | nominal ~90 Hz, -6 dB/oct |
+| 4 | V1A gain | V1A 12AU7, R10 220k | second V1 triode, more curvature | interstage ~2.2x |
+| 5 | 1/4" branch | V2A/V2B White follower, D3 clamp, C12 2u2, R22 18k | low-Z instrument output | final HPF ~4 Hz; clean follower loss in DSP pending an isolated 1/4" capture |
 
 ### Corner-frequency arithmetic (f = 1 / (2*pi*R*C))
 
@@ -37,15 +49,19 @@ All linear corners are taken EXACTLY from the BOM and reproduced in
   nodal analysis in `reference/python/tonestack.py`; the transfer is a (3,3)
   rational H(s), discretised to a 3rd-order IIR and baked over a 9x9
   (treble,bass) grid. Bass and Treble interact and the stack has a
-  setting-dependent insertion loss; noon is restored to ~unity by a fixed
-  makeup gain (`TONE_MAKEUP`), so the knobs boost from noon.
-- **Low-cut ~82..154 Hz (treble-dependent)**: the ROLLOFF switch inserts
-  `C8 4n7` fed from the TREBLE wiper's output impedance `Zout(T)` in series
-  with `R18 220k`: `fc = 1/(2*pi*(Zout+220k)*4n7)`, first order → -6 dB/oct.
-- **Coupling DC blocks**: C9/C11 100n into 220k → `1/(2*pi*220k*100n) ≈ 7 Hz`;
-  staged in the model at 3.18 / 4.02 / 9.5 Hz for the three successive nodes.
+  setting-dependent insertion loss.  The finished-pedal manual specifies the
+  fully counter-clockwise Bass/Treble position as the flat-response reference;
+  the control mapping must be calibrated to that statement, not to noon.
+- **Low-cut / ROLLOFF**: C8 4n7 and R18 220k give a nominal 154 Hz pole before
+  wiper loading. The published “~90 Hz” claim conflicts with the BOM; this
+  implementation follows the circuit and calculates the C8/R18 corner from
+  the tone-stack wiper impedance for each Bass/Trble setting.
+- **1/4" output HPF**: `C12 2u2` into `R22 18k` gives
+  `1/(2*pi*18k*2.2u) ≈ 4 Hz`.  C13 (1u) is part of the shared cathode bypass,
+  not an output coupling capacitor.
 - **White CF split 33.9 Hz**: `1/(2*pi*CFHP)` - separates the clamp/even-order
-  LF behavior from the linear pass-through above it.
+  LF behavior from the linear pass-through above it.  This belongs only to
+  the 1/4" branch.
 - **Shared-rail sag 0.48 Hz**: V1A+V1B share `R24 1k5` bypassed by
   `C13 1u || C14 220u = 221 uF` → `1/(2*pi*1k5*221u) ≈ 0.48 Hz`; an envelope
   one-pole modelling the slow B+ droop that gives the gentle tube compression.
@@ -67,21 +83,19 @@ the "harmonic warmth" the Noble is known for.
 
 | Control | Taper | Normalised range | Mapping used |
 |---------|-------|------------------|--------------|
-| Gain (added) | — | 0..1 | drive = 0.25 * (9.0/0.25)^g (log sweep, baked LUT) |
-| Bass  | A250k log | 0..1 | FMV bass leg; noon≈flat (makeup), boosts lows from noon |
-| Treble| A250k log | 0..1 | FMV treble leg; noon≈flat (makeup), boosts highs from noon |
-| Volume/Level | A250k log | 0..1 | stock_vol curve; unity at knob 80, +3.5 dB at 100 |
-| Low Cut (ROLLOFF) | SPDT | {0,1} | OFF = full range, ON = ~82..154 Hz -6 dB/oct |
-| XFMR | selector | {0,1} | OFF = 1/4" out, ON = DI-transformer path |
+| Input (added) | — | 0..1 | virtual instrument source level into V1B; nominal near midpoint |
+| Bass  | A250k log | 0..1 | FMV bass leg; 0 is the finished-pedal flat reference, then boost |
+| Treble| A250k log | 0..1 | FMV treble leg; 0 is the finished-pedal flat reference, then boost |
+| Level | stock volume curve | 0..1 | 1/4" VOLUME-path output trim; 80 is unity |
+| LoCut (ROLLOFF) | SPDT | {0,1} | OFF = direct stack; ON = physical C8/R18 network |
 
-**Gain** is a deliberate addition - the real circuit has no gain control (it is
-a clean preamp). It scales the input into V1B so the player can dial in the
-starved-tube compression/grit the fixed circuit only reaches at hot input
-levels. It is a straight input scale (louder with more gain, as a preamp
-should be), not a unity-compensated drive.
+**Input** is a deliberate addition - the real circuit has no front-panel gain
+control. It scales the virtual source entering V1B, so passive and active
+instruments can be calibrated without pretending that the Nobelium has a gain
+knob. It is not a unity-compensated drive control.
 
-The interactive FMV tone stack and the switchable low-cut are the Noble's
-actual tone topology, modeled node-for-node (not as independent shelves). With
-the A250k log pots, noon maps to a wiper fraction ~0.15 where the stack is
-nearly flat but heavily attenuated; a fixed `TONE_MAKEUP` restores ~unity so
-the controls boost from noon - matching the pedal's "boost-only shelving" spec.
+The interactive FMV tone stack and the switchable low-cut are the Nobelium's
+actual topology, modeled node-for-node (not as independent shelves). The
+published finished-pedal manual is the authority for the player-facing control
+law: Bass and Treble are boost-only relative to their fully
+counter-clockwise flat position.

@@ -1,9 +1,9 @@
 """duke_ref.py - Tier A "golden" reference model of the Nobelium / Noble DI.
 
 A white-box, oversampled, per-sample model of the audio chain in
-docs/01-circuit-analysis.md. Linear sections use exact bilinear-discretised
-transfer functions derived from the BOM component values; the two 12AU7 gain
-stages and the V2 White cathode follower use the Koren device model in tube.py.
+docs/01-circuit-analysis.md. It models the two real output paths: the 1/4"
+output uses V2's White cathode follower, while the XLR DI path leaves V2 out
+and is transformer-coupled after V1A.
 
 This is the DESKTOP reference. It is allowed everything the embedded kernel is
 not (division, exp/log, per-sample Newton, 8x oversampling). Its job is to be
@@ -35,20 +35,23 @@ R_LOAD = 220e3
 R_K = 1.5e3
 V_SENS = 0.35
 
-CAL_DRIVE_MIN = 0.25
-CAL_DRIVE_MAX = 9.0
+# INPUT is virtual source level, not a Nobelium-panel gain control.  Its
+# bounded -6..+6 dB range has unity at 50, avoiding fuzz-like overdrive.
+INPUT_MIN = 0.5
+INPUT_MAX = 2.0
 CAL_INTERSTAGE = 2.2
-CAL_VOL_NODE = 1.0
 CAL_MAKEUP = 0.9
 
 # passive FMV tone stack (tonestack.py) replaces the old independent shelves.
 # SAG_FC: V1A+V1B share R24 1k5 bypassed by C13 1u || C14 220u = 221uF
 #   -> fc = 1/(2*pi*1k5*221u) = 0.48 Hz (was modelled at 2.06 Hz).
 SAG_FC = 0.48
-# ROLLOFF low-cut: C8 4n7 into R18 220k, source = TREBLE wiper Zout.
+CATH_SCALE = R_K / V_SENS
+# Finished-pedal manual: -6 dB/oct below 90 Hz on both outputs.
+LOWCUT_HZ = 90.0
 LOWCUT_C8 = 4.7e-9
 LOWCUT_R18 = 220e3
-TONE_MAKEUP = tonestack.noon_makeup()   # ~unity broadband at noon knobs
+TONE_MAKEUP = tonestack.flat_makeup()
 GRID_CLAMP_V = 0.6
 
 
@@ -88,6 +91,8 @@ class TubeStage:
                                       B_PLUS, R_LOAD)
         self.A0 = float(-(vp[1] - vp[0]) / (2 * d))
         self.norm = self.A0 * V_SENS
+        self.i0 = float(tube.plate_current(
+            np.array([-self.vk0]), np.array([self.vp0 - self.vk0]))[0])
 
     def shape(self, u, vk=None):
         vk = self.vk0 if vk is None else vk
@@ -96,6 +101,19 @@ class TubeStage:
             vp = tube.solve_plate_voltage(vgrid, float(vk), B_PLUS, R_LOAD)
             return -(vp - self.vp0) / self.norm
         return self._shape_vk_array(vgrid, vk)
+
+    def current_delta(self, u, vk=None):
+        """Plate-current change from quiescence, in amperes.
+
+        This is sampled into the embedded LUT so the R24/C13/C14 shared
+        cathode state is driven by actual Koren plate-current demand rather
+        than by the old absolute-signal compression heuristic.
+        """
+        vk = self.vk0 if vk is None else vk
+        vgrid = np.asarray(u, dtype=np.float64) * V_SENS
+        vp = tube.solve_plate_voltage(vgrid, float(vk), B_PLUS, R_LOAD)
+        ip = tube.plate_current(vgrid - float(vk), vp - float(vk))
+        return ip - self.i0
 
     def _shape_vk_array(self, vgrid, vk):
         lo, hi = float(vk.min()), float(vk.max())
@@ -123,74 +141,117 @@ def stage():
 
 
 # ---- full chain -----------------------------------------------------------
-def process(x, *, gain=0.5, bass=0.5, treble=0.5, level=0.8,
-            lowcut=False, xfmr=False, fs=FS, os_factor=OS):
+def input_drive(value):
+    """Map INPUT 0..1 to a bounded virtual instrument source level."""
+    value = float(np.clip(value, 0.0, 1.0))
+    return INPUT_MIN * (INPUT_MAX / INPUT_MIN) ** value
+
+
+def _output_mode(output, xfmr):
+    """Normalise output mode; retain the old xfmr selector as an API shim."""
+    if xfmr is not None:
+        return "xlr" if xfmr else "quarter"
+    aliases = {"xlr": "xlr", "di": "xlr", "1/4": "quarter",
+               "1/4\"": "quarter", "quarter": "quarter", "inst": "quarter"}
+    try:
+        return aliases[str(output).lower()]
+    except KeyError as exc:
+        raise ValueError("output must be 'xlr' or 'quarter'") from exc
+
+
+def process(x, *, input=0.5, bass=0.0, treble=0.0, level=0.8,
+            lowcut=False, output="xlr", gain=None, xfmr=None, fs=FS,
+            os_factor=OS):
+    """Render a Nobelium output path.
+
+    ``input`` replaces the old artificial ``gain`` name. ``gain`` and
+    ``xfmr`` remain accepted only for old callers: gain aliases input and
+    xfmr False/True selects quarter/XLR respectively.
+    """
     x = np.asarray(x, dtype=np.float64)
     st = stage()
+    if gain is not None:
+        input = gain
+    mode = _output_mode(output, xfmr)
 
     u = signal.resample_poly(x, os_factor, 1) if os_factor > 1 else x.copy()
     fso = fs * os_factor
 
-    drive = CAL_DRIVE_MIN * (CAL_DRIVE_MAX / CAL_DRIVE_MIN) ** gain
-    u = u * drive
+    u = u * input_drive(input)
 
-    # V1B with shared-rail sag (shared cathode 221uF -> 0.48 Hz)
-    sag = one_pole_env(u, SAG_FC, fso)
-    u = st.shape(u, st.vk0 + 0.6 * sag)
-
-    # passive interactive FMV tone stack (exact nodal model) + noon makeup
+    # First estimate of V1B/V1A currents, then the physical shared-cathode
+    # response. R24 sees the sum of the two triodes; C13||C14 makes this a
+    # slow 0.48 Hz bias shift, not the old independent |signal| compressor.
+    v1b_in = u
+    v1b_probe = st.shape(v1b_in)
     wt = tonestack.taper(treble)
-    wb = tonestack.taper(bass)
-    be, ae = tonestack.design_digital(wt, wb, fso)
+    wb = tonestack.bass_taper(bass)
+    bp, ap = tonestack.design_digital(wt, wb, fso)
+    v1a_probe = signal.lfilter(bp, ap, v1b_probe) * TONE_MAKEUP * CAL_INTERSTAGE
+    icath = st.current_delta(v1b_in) + st.current_delta(v1a_probe)
+    a_cath = np.exp(-2.0 * np.pi * SAG_FC / fso)
+    cath = signal.lfilter([1.0 - a_cath], [1.0, -a_cath], CATH_SCALE * icath)
+    cath = np.clip(cath, -4.0, 4.0)
+    u = st.shape(v1b_in - cath)
+
+    # Passive interactive FMV stack. ROLLOFF is part of the same loaded
+    # network, not a generic post-EQ shelf.
+    if lowcut:
+        be, ae = tonestack.design_rolloff_digital(wt, wb, fso)
+    else:
+        be, ae = tonestack.design_digital(wt, wb, fso)
     u = signal.lfilter(be, ae, u) * TONE_MAKEUP
 
-    # ROLLOFF low-cut: corner is TREBLE-dependent (wiper Zout in series)
-    if lowcut:
-        rs = tonestack.zout_T(wt, wb)
-        fc = 1.0 / (2.0 * np.pi * (rs + LOWCUT_R18) * LOWCUT_C8)
-        bh, ah = bilinear_hpf(fc, fso)
-        u = signal.lfilter(bh, ah, u)
-
-    # V1A (shared cathode sag, 0.48 Hz)
+    # V1A sees the same cathode-bias state as V1B.
     u = u * CAL_INTERSTAGE
-    sag2 = one_pole_env(u, SAG_FC, fso)
-    u = st.shape(u, st.vk0 + 0.6 * sag2)
+    u = st.shape(u - cath)
 
     # V1A loading + C7 DC block
     bh, ah = bilinear_hpf(9.5, fso)
     u = signal.lfilter(bh, ah, u)
 
-    # VOLUME pot (A250k log) + C9 DC block
-    u = u * CAL_VOL_NODE * (level ** 2)
-    bh, ah = bilinear_hpf(3.18, fso)
-    u = signal.lfilter(bh, ah, u)
-
-    # V2 White cathode follower + grid clamp
-    u = white_cf(u, fso)
-
-    # output HPF
-    bh, ah = bilinear_hpf(4.02, fso)
-    u = signal.lfilter(bh, ah, u)
-
-    if xfmr:
-        u = transformer(u, fso)
+    # The physical paths diverge here. V2 (the second 12AU7) buffers only
+    # the 1/4" output. XLR leaves V2 out and is transformer-coupled.
+    if mode == "quarter":
+        u = u * audio_pot(level)
+        bh, ah = bilinear_hpf(3.18, fso)  # C9 coupling to V2
+        u = signal.lfilter(bh, ah, u)
+        u = white_cf(u, fso)
+        bh, ah = bilinear_hpf(4.02, fso)  # C12/R22 1/4" HPF
+        u = signal.lfilter(bh, ah, u)
+    else:
+        u = jensen_jtdb_epc(u, fso)
+        u = u * xlr_trim(level)
 
     if os_factor > 1:
         u = signal.resample_poly(u, 1, os_factor)
-    return u * CAL_MAKEUP * stock_vol_gain(level)
+    return u * CAL_MAKEUP
 
 
 def white_cf(u, fs):
-    u_cl = np.where(u > GRID_CLAMP_V / V_SENS, GRID_CLAMP_V / V_SENS, u)
-    bh, ah = bilinear_hpf(33.9, fs)
-    hi = signal.lfilter(bh, ah, u_cl)
-    lo = u_cl - hi
-    sym = 0.92 * hi
-    asym = 0.92 * (lo + 0.15 * lo * np.abs(lo))
-    return sym + asym
+    """Measured clean V2 follower loss; nonlinear V2 awaits isolated 1/4 data."""
+    del fs
+    return 0.92 * u
 
 
-def transformer(u, fs):
+def audio_pot(level):
+    """A250k audio-taper approximation for the 1/4-inch VOLUME pot."""
+    level = float(np.clip(level, 0.0, 1.0))
+    return level * level
+
+
+def xlr_trim(level):
+    """500k XLR trim, intentionally after the transformer branch."""
+    level = float(np.clip(level, 0.0, 1.0))
+    return level * level
+
+
+def jensen_jtdb_epc(u, fs):
+    """First-pass JT-DB-EPC DI branch approximation.
+
+    It isolates the known core soft-saturation and HF leakage behaviour so a
+    later datasheet fit can replace it without touching either valve path.
+    """
     bl, al = bilinear_hpf(60.0, fs)
     hf = signal.lfilter(bl, al, u)
     lf = u - hf
@@ -198,6 +259,10 @@ def transformer(u, fs):
     b, a = signal.bilinear([2 * np.pi * 18000.0],
                            [1.0, 2 * np.pi * 18000.0], fs)
     return signal.lfilter(b, a, lf + hf)
+
+
+# Compatibility alias for older analysis callers.
+transformer = jensen_jtdb_epc
 
 
 def stock_vol_gain(level):
@@ -210,7 +275,8 @@ if __name__ == "__main__":
     t = np.arange(int(0.2 * fs)) / fs
     for g in (0.2, 0.5, 0.9):
         x = 0.3 * np.sin(2 * np.pi * 110.0 * t)
-        y = process(x, gain=g, bass=0.6, treble=0.5, level=0.8, lowcut=True)
-        print("gain=%.1f  in rms=%.3f  out rms=%.3f peak=%.3f"
+        y = process(x, input=g, bass=0.0, treble=0.0, level=0.8,
+                    lowcut=True, output="xlr")
+        print("input=%.1f  in rms=%.3f  out rms=%.3f peak=%.3f"
               % (g, np.sqrt(np.mean(x ** 2)), np.sqrt(np.mean(y ** 2)),
                  np.max(np.abs(y))))

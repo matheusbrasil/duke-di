@@ -17,16 +17,15 @@ resolved them, and the model now reflects the actual circuit.
   nodal (MNA) solver in `reference/python/tonestack.py`, discretised to a
   3rd-order IIR, baked over a 9x9 (treble,bass) grid. The old
   `BASS_MAX_DB/TREBLE_MAX_DB` independent-shelf model is gone.
-- **Noon is NOT flat.** With the A250k **log** pots, noon maps (A-taper, ~15%
-  at mid-rotation) to a wiper fraction ~0.15, where the stack is nearly flat
-  but heavily attenuated. A fixed makeup gain (`TONE_MAKEUP`, 1/|H(1k,noon)|)
-  restores ~unity at noon, so the knobs act as **boost-from-noon** controls -
-  which is what the pedal's "boost-only shelving" marketing describes.
-- **ROLLOFF low-cut corner is TREBLE-dependent (~82..154 Hz), not a fixed
-  90 Hz.** The switch inserts `C8 4n7` into `R18 220k`; the series source
-  resistance is the TREBLE wiper's output impedance `Zout(T)`, so
-  `fc = 1/(2*pi*(Zout+220k)*4n7)`. Zout rises with treble (0 -> ~154 Hz,
-  ~190k at treble max -> ~83 Hz). Baked over a 17-step treble grid.
+- **The finished-pedal manual, not an inferred pot law, defines the public
+  control reference.** It says Bass/Treble are boost-only shelves with flat
+  frequency response when both are fully counter-clockwise. The prior
+  boost-from-noon interpretation is retired; the reference model applies a
+  flat-setting makeup calibration while retaining the actual interactive
+  A250k-network response away from that endpoint.
+- **ROLLOFF follows C8/R18, not the conflicting commercial shorthand.** C8
+  4n7 and R18 220k imply ~154 Hz before source loading. The embedded lookup
+  calculates that source loading for every Bass/Trble combination.
 - **Sag corner is 0.48 Hz, not 2.06 Hz.** V1A and V1B share one cathode
   network `R24 1k5` bypassed by `C13 1u || C14 220u = 221 uF`, so
   `fc = 1/(2*pi*1k5*221u) = 0.48 Hz`. `SAG_FC = 0.48` in `duke_ref.py`,
@@ -34,19 +33,27 @@ resolved them, and the model now reflects the actual circuit.
 
 ## Remaining component / topology assumptions
 
-- **A-taper pot law.** The A250k pots are log; the knob->wiper map uses an
-  exponential audio taper giving ~15% resistance at mid-rotation
-  (`tonestack.TAPER_K`). The exact taper of the specific pots is not measured;
-  it affects knob *feel*, not the achievable EQ range.
+- **The DSP implements the 1/4" topology only.** V2A/V2B form the White
+  cathode follower after V1A. XLR transformer colour was removed because the
+  MS-60B+ has no balanced/isolated output and the distinction was inaudible.
+
+- **Pot travel laws.** TREBLE remains the documented A250k exponential audio
+  taper (~15% resistance at mid-rotation). BASS uses a separate monotone,
+  capture-calibrated law: full-rate Noble NAM A2 captures put its effective
+  rheostat resistance at 2.17% around 9 o'clock and 5.88% at noon. This keeps
+  the BOM-derived topology and maximum range while matching the measured
+  control feel; it replaces the previous unmeasured shared 15%-at-noon law.
 - **Plate output impedance `PLATE_ZOUT = 7.4k`** (rp of a 12AU7 ~7.7k || R9
-  220k) feeds the stack as its source resistance; **`TONE_LOAD = 1M`** models
-  the grid-side load on the wiper. Both shift absolute level (folded into
-  makeup/CAL), not the EQ shape materially.
-- **Low-cut Zout uses bass at noon.** The 1-D low-cut grid is indexed by
-  treble; the wiper Zout also depends weakly on bass, fixed at noon for the
-  corner estimate. The dependence is treble-dominated.
-- **VOLUME pot tone-loading** is folded to a constant (`CAL_VOL_NOM = 0.64`) in
-  Tier B. Its rotation-dependent treble loss is a 2nd-order effect, omitted.
+  220k) feeds the stack as its source resistance. The schematic has R15 1k5
+  as a series grid stopper but no 1 Mohm V1A grid leak; `TONE_LOAD` is thus a
+  numerically finite 1 Tohm only, rather than an invented shunt.
+- **Low-cut loading needs a branch-aware reference calculation.** It is common
+  to both paths, but its published control target is ~90 Hz; passive-wiper
+  impedance is retained only as an internal circuit detail.
+- **The Volume and XLR-level controls are different physical controls.** The
+  panel Volume sets the 1/4" output; the rear XLR trim sets the balanced
+  output. A digital `Level` control may map contextually to one or the other,
+  but must not be presented as one common physical pot.
 
 ## Tube-model assumptions
 
@@ -64,21 +71,26 @@ resolved them, and the model now reflects the actual circuit.
 
 ## Modeling-choice assumptions (Tier B reductions)
 
-- **1x oversampling (base rate).** Aliasing is now *measured* (A/B T7): worst
-  in-band spur -32 dBc at a hot 7 kHz stress tone. Acceptable for bass-range
-  program; 2x around the tube stages remains the documented fallback if a use
-  case needs it. The tone stack runs at base rate so its low-frequency poles
-  stay well away from z=1 (max digital pole radius 0.999 across the grid).
+- **Local oversampling follows where distortion occurs.** V1B uses 2x with a
+  compact 20-kHz prefilter because it is clean at nominal Input; V1A uses 4x
+  and a 4-section elliptic decimator (18 kHz passband, >=60 dB at 22.05 kHz)
+  because it receives the boosted FMV output. The previous 25-kHz decimator
+  was above final Nyquist and is retired. V2 is modelled as clean follower
+  loss until an isolated 1/4-inch capture constrains its nonlinearity.
 - **Interpolated-IIR stability.** Bilinearly interpolating 3rd-order coeffs
   between grid nodes could in principle leave the stable region; `bake_tables.
   py` runs a gate sweeping every node AND 5x5 interpolated sub-cells, asserting
   max pole radius < 0.9999 (actual 0.99918).
-- **Sag as compression multiply** (not a bias shift). Preserves the slow
-  0.48 Hz envelope and H2>H3; an exact bias-shift match was traded for cost.
-- **Transformer = cubic soft-sat + 18 kHz rolloff.** Models LF core saturation
-  and HF leakage; no hysteresis or frequency-dependent core loss.
-- **Gain control is an addition** to the real circuit and is a straight input
-  scale, intentionally not the unity-compensated ÷drive staging.
+- **Shared-cathode bias reduction.** Plate-current deltas from the Koren
+  load-line LUT drive one R24/C13/C14 state shared by V1A/V1B. This captures
+  the physical slow bias shift; grid current and heater-emission dynamics are
+  still outside the embedded reduction.
+- **The XLR transformer branch is intentionally absent.** A meaningful
+  JT-DB-EPC model would need magnetic measurements and would still not create
+  a balanced, isolated XLR output from the MS-60B+. The effect follows the
+  complete 1/4-inch path instead.
+- **Input control is an addition** to the real circuit and is a straight input
+  scale, intentionally not a unity-compensated drive staging.
 
 ## Platform / build assumptions
 
@@ -91,17 +103,19 @@ resolved them, and the model now reflects the actual circuit.
   playground id. The author entry lives in `ids/effect-authors.local.json`
   (tracked here) and is merged into the clone's ledger by `tools/stage_build.
   sh`, because the clone is gitignored and clobbered by re-clone.
-- **state_bytes 128** with the firmware guard at word 32; the kernel uses 29
-  words (two channels x 12-section blocks + 5 shared), 3 words of margin.
+- **state_bytes 184** with the firmware guard at word 46. The additional state
+  holds the causal 2x/4x interpolation history and the V1A decimator delays.
 
 ## Not done in this session (needs external tools)
 
-- **Final `.ZD2` blob**: needs TI `cl6x` (proprietary, no root here). Pipeline
-  verified up to the compile step. See `04-zd2-port.md`.
+- **Final `.ZD2`/`.ZIC` pair**: v1.12 builds with the installed TI CGT 8.5.0
+  toolchain and was installed/read-back on an MS-60B+ firmware 1.20. Future
+  source changes still require the complete build, audit and safety gates.
 - **C674x asm audit**: SAFE-DSP checked at source level
   (`validation/check_safe_dsp.py`); the generated object needs the `cl6x`
   listing to confirm.
 - **SPICE curves**: netlists shipped (`spice/`), but ngspice could not be
   installed here (no root). Run `spice/run_sweeps.sh` yourself.
-- **Mock-pedal install self-test / DIY classify**: need the built blob.
-- **On-hardware DSP cycle measurement**: mandatory before trusting `dspload`.
+- **Mock-pedal install self-test / DIY classify**: passed for the v1.12 build.
+- **On-hardware DSP cycle measurement**: still required before interpreting
+  `dspload` as anything more than conservative scheduler metadata.

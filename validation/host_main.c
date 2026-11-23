@@ -12,7 +12,7 @@
  *   instance[2] -> state[]   (zeroed, guard magic at word state_bytes/4)
  *   ctx[1]      -> eff[32]    (ch A 0..15, ch B 16..31, in place)
  *
- * Usage:  host_duke  gain bass treble level lowcut xfmr  < in.f64 > out.f64
+ * Usage:  host_duke  input bass treble level lowcut  < in.f64 > out.f64
  *   controls are coeff-domain values in [0,1] (level is amplitude 0..1.6),
  *   matching the normalised controls passed to duke_ref.process().
  *   stdin/stdout are raw little-endian float64 mono streams.
@@ -21,6 +21,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef _WIN32
+#include <fcntl.h>
+#include <io.h>
+#endif
 #include "sh_params.h"
 
 /* the kernel's audio entry (duke.c) */
@@ -28,8 +32,14 @@ void SH_AUDIO_FN(void **instance, void **ctx);
 
 int main(int argc, char **argv)
 {
-    if (argc != 7) {
-        fprintf(stderr, "usage: %s gain bass treble level lowcut xfmr "
+#ifdef _WIN32
+    /* The A/B protocol is raw float64.  Windows text streams rewrite 0x0A
+       bytes, so force binary mode before the first fread/fwrite. */
+    _setmode(_fileno(stdin), _O_BINARY);
+    _setmode(_fileno(stdout), _O_BINARY);
+#endif
+    if (argc != 6) {
+        fprintf(stderr, "usage: %s input bass treble level lowcut "
                         "< in.f64 > out.f64\n", argv[0]);
         return 2;
     }
@@ -38,12 +48,11 @@ int main(int argc, char **argv)
     float coeff[16];
     memset(coeff, 0, sizeof coeff);
     coeff[SH_COEFF_BYPASS]  = 1.0f;                 /* fully wet */
-    coeff[SH_PARAM_GAIN]    = (float)atof(argv[1]);
+    coeff[SH_PARAM_INPUT]   = (float)atof(argv[1]);
     coeff[SH_PARAM_BASS]    = (float)atof(argv[2]);
-    coeff[SH_PARAM_TREBLE]  = (float)atof(argv[3]);
+    coeff[SH_PARAM_TRBLE]   = (float)atof(argv[3]);
     coeff[SH_PARAM_LEVEL]   = (float)atof(argv[4]);
     coeff[SH_PARAM_LOCUT]   = (float)atof(argv[5]);
-    coeff[SH_PARAM_XFMR]    = (float)atof(argv[6]);
 
     /* state[]: SH_STATE_BYTES zeroed, guard magic one word past our region */
     enum { STATE_WORDS = (SH_STATE_BYTES / 4) + 2 };

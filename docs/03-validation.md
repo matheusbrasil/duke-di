@@ -13,8 +13,8 @@ analog stage. (C) needs ngspice/LTspice on your machine; (A) and (B) run here.
 - **Even-order dominant**: H2 ~7 dB above H3 on a 110 Hz tone - the
   single-ended-triode signature.
 - **THD** ~1.8% at nominal drive (clean preamp, not an overdrive).
-- **EQ**: interactive FMV tone stack (3rd-order); noon restored to ~unity by
-  `TONE_MAKEUP`, Bass/Treble boost from noon.
+- **EQ**: interactive FMV tone stack (3rd-order); the fully counter-clockwise
+  Bass/Trble setting is the published flat reference.
 - **Low-cut**: treble-dependent ~82..154 Hz, -6 dB/oct.
 
 Run: `python3 reference/python/duke_ref.py`.
@@ -28,14 +28,14 @@ compared to Tier A.
 ```
 python3 reference/python/bake_tables.py     # bake LUTs + host twin
 bash   validation/build_host.sh             # gcc -> validation/host_duke
-python3 validation/ab_test.py               # 8 checks
+python3 validation/ab_test.py               # 9 checks
 python3 validation/check_safe_dsp.py        # source SAFE-DSP lint
 ```
 
 ### Why this is characteristic-level, not a null test
 
-Tier B is a deliberate **CPU-budget reduction** of Tier A (1x rate, LUT tube
-map, compression-multiply sag). It is not meant to null against Tier A
+Tier B is a deliberate **CPU-budget reduction** of Tier A (local 2x/4x rate,
+LUT tube map, compression-multiply sag). It is not meant to null against Tier A
 sample-for-sample. The suite instead holds the kernel to tolerances that catch
 a *broken* model while allowing the *intended* reductions.
 
@@ -50,12 +50,13 @@ a *broken* model while allowing the *intended* reductions.
 | T4 | Tone-stack tilt authority | Bass and Treble each move their band **≥ +4 dB** from noon | Proves the baked 9x9 EQ LUT + 2-D interp give real boost-from-noon authority (interactive stack, not independent shelves). |
 | T5 | Low-cut @ 45 Hz | **≤ -4 dB** when ON | Proves the treble-dependent -6 dB/oct section engages. |
 | T6 | Numerical safety | finite, **|y| < 8** (kernel clamp) | No divergence and no sample scrubbed to zero (no dropouts). |
-| T7 | In-band aliasing | worst spur **≤ -24 dBc** on a hot 7 kHz stress tone | Base-rate (1x) model; bounds the aliasing the no-oversampling choice admits. |
+| T8 | Bright aliasing | worst spur **≤ -24 dBc** on a hot 7 kHz stress tone | Exercises the oversampled V1A nonlinear path. |
+| T9 | Low-E extreme alias | non-harmonic spur **≤ -50 dBc** | Reproduces a hard 41 Hz attack with Bass/Trble at 100; catches folded products that simple EQ sweeps miss. |
 
-Current status: **8/8 pass**. Measured headroom is large - T1 deviation
-**+0.09 dB**, T2 worst **0.15 dB**, T3 margin **+12.0 dB** (ref +12.1),
-T4 bass **+17.3 dB** / treble **+13.1 dB**, T5 **-9.8 dB**, T7 worst spur
-**-32 dBc** - so the reductions cost far less than the tolerances allow.
+Current v1.12 status: **9/9 pass**. Measured T1 deviation is **+0.01 dB**,
+T2 worst deviation **1.80 dB** at 12 kHz, T8 bright spur **-56.8 dBc**, and
+T9 low-E extreme non-harmonic spur **-63.4 dBc**. The latter two replace the
+old base-rate alias tolerance with the attack cases that matter musically.
 
 ### SAFE-DSP lint
 

@@ -1,9 +1,9 @@
 # 05 - Build and flash runbook
 
 The one ordered procedure from "nothing installed" to "Duke DI running on the
-MS-60B+". Everything up to step 3 is done and verified in this repo; steps 3-8
-are the handover you run yourself, because they need TI's compiler and the
-physical pedal.
+MS-60B+". It is written as a repeatable safety procedure: v1.12 was built and
+installed on an MS-60B+ firmware 1.20, but every later replacement must repeat
+the same backup, uninstall-first and readback gates.
 
 > Two documented brick paths exist (`third_party/stomphacks/SAFETY.md`). The
 > flashing steps below are in the order that keeps the pedal safe. Do not
@@ -39,7 +39,7 @@ because they do not block the in-scope work.
 ```
 python3 reference/python/bake_tables.py     # bake LUTs + host twin
 bash    validation/build_host.sh            # gcc -> validation/host_duke
-python3 validation/ab_test.py               # expect 8/8
+python3 validation/ab_test.py               # expect 9/9
 python3 validation/check_safe_dsp.py        # source SAFE-DSP lint
 ```
 
@@ -86,7 +86,7 @@ The pipeline runs 8 steps: clean-room scaffold, `cl6x` compile of `duke.c`,
 clean-room asm generation, assemble/link/pack (from-scratch container), verify,
 icon, finalize, final validation. `verify_cleanroom` auto-asserts the loader
 contract for us: relocations are only ABS32/ABS_L16/ABS_H16, no unwanted data
-sections (`.bss`/`.cinit`/...), the `.text` size is within budget, the 1164-word
+sections (`.bss`/`.cinit`/...), the `.text` size is within budget, the 1869-word
 `const_blob` sits after `_Coe`, and the param/function table matches the
 manifest. **`REPORT.md`'s checks must all pass before the file goes near a
 pedal.**
@@ -158,13 +158,12 @@ Two findings that are easy to miss:
 
 ## Step 6 - Measure the real DSP load (on hardware)
 
-`manifest.json` declares `"dspload": 60`. The pedal **trusts this number
+`manifest.json` declares `"dspload": 128`. The pedal **trusts this number
 completely** - it sums declared loads per patch and refuses an effect that
-would overflow the budget, but it never measures. 60 is a conservative
-engineering estimate for a two-triode + 3rd-order-EQ + transformer chain, not a
-measurement. Before relying on it in dense patches, measure the real cycle cost
-on hardware and set an honest number (keep headroom). Treat 60 as a ceiling to
-validate, not a guarantee.
+would overflow the budget, but it never measures cycles. 128 is conservative
+scheduler metadata for the two-triode/oversampling path, not a measured DSP
+percentage. Before relying on it in dense patches, obtain an independent
+hardware-cycle measurement and keep headroom.
 
 ## Step 7 - Pre-flight, off the pedal
 
@@ -198,7 +197,7 @@ cd third_party/stomphacks
 # 3. optional dry run of the exact install (no bytes written)
 .venv/bin/python3 tools-pedal/pedal_diy.py install effects/duke/build/MBDUKE.ZD2 --dry-run
 
-# 4. the real install (installs the binary + edits the effect list ONLY;
+# 4. the real install (installs the binary + checked companion icon and edits the effect list ONLY;
 #    never writes a patch or memory slot, so it cannot enter the boot patch)
 .venv/bin/python3 tools-pedal/pedal_diy.py install effects/duke/build/MBDUKE.ZD2
 ```
@@ -217,23 +216,22 @@ is stable. Autosave OFF is the invariant the whole anti-bricking model rests on.
 
 ## Status (what builds, what still needs hardware)
 
-With TI CGT 8.5.0 and ngspice installed, **the build now runs end to end**:
-`zd2_make_effect.py` produces `MBDUKE.ZD2` (all 8 steps pass, `verify_cleanroom`
-green: leaf kernel, no CALLs, relocs ABS32/ABS_L16/ABS_H16 only, dspload 22.2%
-of the 270 budget), the asm auditor passes with `--allow-stack`, the host A/B is
-8/8, and `spice/run_sweeps.sh` writes both reference Bode files.
+With TI CGT 8.5.0 installed, **the Windows build runs end to end**:
+`tools/build_windows.ps1` produces `MBDUKE.ZD2` and replaces the packer's
+generic icon with the checked `MBDUKE.ZIC`. The v1.12 build passed cleanroom
+packaging, the `--allow-stack` assembly audit, the 9/9 host A/B suite and the
+StompHacks transfer self-test.
 
 | Item | State | Note |
 |------|-------|------|
-| `MBDUKE.ZD2` blob | **builds** | needs `cl6x` (step 2); recipe above |
-| SPICE curves | **generated** | `ngspice -b` via `spice/run_sweeps.sh` |
+| `MBDUKE.ZD2` + `MBDUKE.ZIC` | **built and installed** | verified byte-for-byte by pedal readback |
+| MS-60B+ installation | **completed** | firmware 1.20, Auto Save OFF confirmed |
 | Real `dspload` number | open | needs on-hardware cycle measurement (step 6) |
-| The flash itself | open | needs the physical MS-60B+ (steps 7-8) |
 
-The only remaining handovers are the two that inherently need the pedal: the
-honest `dspload` measurement and the flash. `cl6x` and `ngspice` are free
-installs (see the toolchain notes); neither needs root for a user-prefix
-install.
+v1.12 was installed with this sequence, including `MBDUKE.ZD2` and
+`MBDUKE.ZIC` byte-for-byte readback and Auto Save OFF confirmation. The
+remaining measurement gap is an independent hardware cycle count; the flash
+procedure itself is validated on this pedal/firmware combination.
 
 ---
 

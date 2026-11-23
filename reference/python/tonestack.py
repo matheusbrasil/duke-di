@@ -17,13 +17,14 @@ Topology read from files/sch/audio_full.png (V1B plate -> grid of V1A):
     BASS   A250k: rheostat A - B, value wb*Rp       (wb=1 -> full bass)
     R21 2k7 : B - GND
     Rs      : Vin -> P   (12AU7 plate output impedance rp||R9)
-    Rload   : T - GND    (downstream grid-side input impedance)
+    Rload   : T - GND    (numerical representation of V1A's very-high-Z grid)
 
 The three caps make this an exact 3rd-order rational H(s)=V_T/Vin.  We sample
 the MNA transfer on the jw axis and recover num/den polynomials by least
 squares (the fit is exact because the true order is known).
 """
 import numpy as np
+from scipy.interpolate import PchipInterpolator
 
 # --- component values (BOM) -------------------------------------------------
 R13 = 47e3
@@ -33,7 +34,12 @@ C11 = 100e-9
 RP  = 250e3          # both pots, A250k
 R21 = 2.7e3
 PLATE_ZOUT = 7.4e3   # rp(12AU7)~7.7k || R9 220k  (source impedance of V1B plate)
-TONE_LOAD  = 1.0e6   # grid-side load on the wiper (R15 + grid leak)
+# The audio schematic has R15=1k5 as a series grid stopper, but no 1 Mohm
+# V1A grid-leak resistor.  The prior 1 Mohm shunt was invented and changes
+# the tone-control loading.  Keep only a numerically finite, electrically
+# negligible grid load; grid capacitance/nonlinearity is handled by the tube
+# stage rather than by a fictional resistor.
+TONE_LOAD  = 1.0e12
 
 EPS = 1.0            # 1 ohm guard so a pot end never divides by zero
 
@@ -99,6 +105,24 @@ def taper(n, k=TAPER_K):
     return (np.exp(k * n) - 1.0) / (np.exp(k) - 1.0)
 
 
+# The schematic determines the electrical topology, but not the exact travel law
+# of the physical BASS A250k pot.  Full-rate NAM A2 measurements of a Noble
+# capture set identify the effective wiper resistance at two repeatable clock
+# positions: 9 o'clock (0.20 travel) = 0.0217, and noon (0.50) = 0.0588.
+# A monotone cubic preserves those measurements, the known endpoints, and a
+# smooth boost-only progression.  TREBLE remains on the documented A-taper;
+# its measured response already agrees within about 1 dB.
+_BASS_TRAVEL = np.array([0.0, 0.20, 0.50, 1.0])
+_BASS_WIPER = np.array([0.0, 0.0217, 0.0588, 1.0])
+_BASS_TAPER = PchipInterpolator(_BASS_TRAVEL, _BASS_WIPER, extrapolate=False)
+
+
+def bass_taper(n):
+    """Empirical Noble BASS A250k travel law, normalised to 0..1."""
+    n = np.clip(n, 0.0, 1.0)
+    return _BASS_TAPER(n)
+
+
 def zout_T(wt, wb, f=1000.0, rs=PLATE_ZOUT, rload=TONE_LOAD):
     """Output impedance looking back into the stack from node T (ohms).
 
@@ -132,6 +156,60 @@ def design_digital(wt, wb, fs, **kw):
     return _sig.bilinear(num, den, fs)
 
 
+def _solve_rolloff(s, wt, wb, rs=PLATE_ZOUT, rload=TONE_LOAD):
+    """Return the post-C8/R18 voltage for a 1 V source.
+
+    This is the literal ROLLOFF-on topology: C8 4n7 from the Treble wiper to
+    the V1A grid node and R18 220k from that node to ground.  It must be
+    solved together with the stack because the wiper source impedance changes
+    with both controls; cascading a fixed 90 Hz HPF is not the circuit.
+    """
+    out = N
+    Y = np.zeros((N + 1, N + 1), dtype=complex)
+    rhs = np.zeros(N + 1, dtype=complex)
+    gs = 1.0 / rs
+    _stamp(Y, P, 'gnd', gs)
+    rhs[P] += gs
+    _stamp(Y, P, M, 1.0 / R13)
+    _stamp(Y, P, Tt, s * C6)
+    _stamp(Y, M, A, s * C10)
+    _stamp(Y, M, B, s * C11)
+    _stamp(Y, Tt, T, 1.0 / ((1.0 - wt) * RP + EPS))
+    _stamp(Y, T, A, 1.0 / (wt * RP + EPS))
+    _stamp(Y, A, B, 1.0 / (wb * RP + EPS))
+    _stamp(Y, B, 'gnd', 1.0 / R21)
+    _stamp(Y, T, 'gnd', 1.0 / rload)
+    _stamp(Y, T, out, s * 4.7e-9)  # C8
+    _stamp(Y, out, 'gnd', 1.0 / 220e3)  # R18
+    return np.linalg.solve(Y, rhs)[out]
+
+
+def rational_rolloff(wt, wb, **kw):
+    """Recover the exact fourth-order post-ROLLOFF transfer."""
+    w0 = 2.0 * np.pi * 1000.0
+    ang = np.linspace(0.12, np.pi - 0.12, 15)
+    s = np.concatenate([w0 * np.exp(1j * ang), 8.0 * w0 * np.exp(1j * ang)])
+    sn = s / w0
+    H = np.array([_solve_rolloff(si, wt, wb, **kw) for si in s])
+    # H*(1+a1*s+...+a4*s^4) = b0+...+b4*s^4
+    cols = [sn ** k for k in range(5)]
+    cols += [-H * sn ** k for k in range(1, 5)]
+    amat = np.stack(cols, axis=1)
+    x, *_ = np.linalg.lstsq(np.vstack([amat.real, amat.imag]),
+                            np.concatenate([H.real, H.imag]), rcond=None)
+    scale = w0 ** np.arange(5)
+    b = x[:5] / scale
+    a = np.concatenate([[1.0], x[5:]]) / scale
+    return b[::-1], a[::-1]
+
+
+def design_rolloff_digital(wt, wb, fs, **kw):
+    """Bilinear 4th-order filter for the physical ROLLOFF-on network."""
+    from scipy import signal as _sig
+    num, den = rational_rolloff(wt, wb, **kw)
+    return _sig.bilinear(num, den, fs)
+
+
 def noon_makeup(n_bass=0.5, n_treble=0.5, f=1000.0):
     """Gain that restores ~unity broadband level at the noon knob setting.
 
@@ -139,7 +217,13 @@ def noon_makeup(n_bass=0.5, n_treble=0.5, f=1000.0):
     ~0.15) the response is nearly flat and heavily attenuated, so a fixed
     makeup of 1/|H(noon)| makes noon ~0 dB and turns the knobs into
     boost-from-noon controls (matching the pedal's 'boost-only' voicing)."""
-    wt, wb = taper(n_treble), taper(n_bass)
+    wt, wb = taper(n_treble), bass_taper(n_bass)
+    return 1.0 / float(np.abs(transfer(f, wt, wb)[0]))
+
+
+def flat_makeup(f=1000.0):
+    """Gain that restores unity at the documented fully-CCW flat setting."""
+    wt, wb = taper(0.0), taper(0.0)
     return 1.0 / float(np.abs(transfer(f, wt, wb)[0]))
 
 

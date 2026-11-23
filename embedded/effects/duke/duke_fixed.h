@@ -21,14 +21,6 @@
 #define OUTHP_B1 -9.997137055e-01f
 #define OUTHP_A1 -9.994274110e-01f
 
-#define XFHP_B0 9.957438901e-01f
-#define XFHP_B1 -9.957438901e-01f
-#define XFHP_A1 -9.914877803e-01f
-
-#define XFLP_B0 5.618421885e-01f
-#define XFLP_B1 5.618421885e-01f
-#define XFLP_A1 1.236843770e-01f
-
 #define SAG_A 9.999316139e-01f   /* one-pole: y += (1-a)*(|x|-y) */
 
 #endif /* DUKE_FIXED_H */

@@ -1,10 +1,11 @@
 * gain_stage.cir - one 12AU7 common-cathode gain stage (Duke DI front end).
 *
-* REFERENCE netlist for validating the Tier A DSP tube model. Values follow
-* the BOM-derived stage analysis in docs/01-circuit-analysis.md. The real
-* Nobelium runs starved heaters on a MOSFET-regulated rail; here we use a
-* clean DC rail and the nominal 12AU7 model, then compare the SMALL-SIGNAL
-* gain and the harmonic structure against reference/python/tube.py.
+* REFERENCE netlist for validating the Tier A V1B tube model. Values follow
+* the Nobelium BOM/audio schematic: 250 V plate rail, R9 = 220k, R24 = 1k5,
+* C13 = 1u and C14 = 220u. The real Nobelium runs starved heaters on a
+* MOSFET-regulated rail; here we use a clean DC rail and the nominal 12AU7
+* model, then compare the SMALL-SIGNAL gain and harmonic structure against
+* reference/python/tube.py.
 *
 * Two analyses:
 *   AC   : magnitude/phase of the stage (Bode) -> export mag(V(out))
@@ -15,22 +16,23 @@
 .include 12au7.lib
 
 * ---- supply and bias ------------------------------------------------------
-VB    hv    0    DC 180
-Rp    hv    p    100k         ; plate load (220k//next-stage approx in doc)
-Rk    k     0    1.5k         ; cathode self-bias (R14/15/16 class)
-Ck    k     0    220u         ; cathode bypass (C14) - full bypass in band
-Rg    g     0    1Meg         ; grid leak (R12/19/25)
+VB    hv    0    DC 250
+Rp    hv    p    220k         ; R9: V1B plate load
+Rk    k     0    1.5k         ; R24: shared cathode resistance
+Ck13  k     0    1u           ; C13, in parallel with C14
+Ck14  k     0    220u         ; C14
+Rg    g     0    10Meg        ; R17 input impedance
 
 * ---- device --------------------------------------------------------------
 X1    p     g     k    12AU7
 
 * ---- input coupling ------------------------------------------------------
 Vin   in    0     DC 0 AC 1  SIN(0 0.1 1k)
-Cin   in    g     100n        ; input coupling (C9/C11 class)
+Rin   in    g     1.5k        ; R14 series grid stopper
 
 * ---- output coupling / load ----------------------------------------------
-Cout  p     out   100n        ; output coupling
-Rload out   0     220k        ; following-stage input impedance
+Cout  p     out   100n        ; C7 into the volume/control network
+Rload out   0     1Meg        ; high-Z measurement load; tone stack is separate
 
 .control
   ac dec 50 10 100k

@@ -1,5 +1,6 @@
 # Build / generated
 embedded/effects/duke/build/*
+.venv/
 # ...but keep the generated param header so the host harness builds standalone
 !embedded/effects/duke/build/sh_params.h
 reference/cpp/build/
@@ -12,6 +13,7 @@ __pycache__/
 
 # Validation artifacts (regenerated)
 validation/host_duke
+validation/host_duke.exe
 validation/out/
 validation/spice_*_ac.txt
 *.wav
@@ -36,3 +38,12 @@ ti_cgt_c6000_*_installer.bin
 
 # Windows alternate-data-stream cruft
 *:Zone.Identifier
+
+# Local captures and pedal safety backups.  They can be large and may contain
+# personal patch names; the documented generators/analyzers are tracked instead.
+Noble Preamp/
+Noble - Bass.nam
+Noble Bass Preamp.zip
+pedal-backup-*/
+pedal-session-*/
+tmp/

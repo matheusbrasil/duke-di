@@ -2,8 +2,9 @@
 
 Every linear section is discretised with the **bilinear (Tustin) transform**
 with prewarping at the section corner. The two tiers share the same corner
-frequencies; they differ only in sample rate (Tier A oversamples 8x, Tier B
-runs at base 44.1 kHz) and in how the nonlinearities are evaluated.
+frequencies; they differ in rate only around nonlinear stages (Tier A
+oversamples 8x; Tier B uses local 2x/4x processing) and in how the
+nonlinearities are evaluated.
 
 ## Bilinear transform
 
@@ -46,7 +47,6 @@ The baked coefficients (`embedded/effects/duke/duke_fixed.h`, from
 | DC2  (3.18 Hz) | 3.18  | 0.9997735 | -0.9995470 |
 | CFHP (33.9 Hz) | 33.9  | 0.9975908 | -0.9951817 |
 | OUTHP (4.02 Hz)| 4.02  | 0.9997137 | -0.9994274 |
-| XFHP (18 kHz split) | — | 0.9957439 | -0.9914878 |
 
 (`b1 = -b0` for every high-pass.)
 
@@ -82,12 +82,6 @@ First-order high-pass `H(s) = s/(s+wc)` with `wc = 2*pi*fc`,
 `bake_tables.py` samples `{b0,b1,a1}` at **17 treble steps** into the blob;
 the kernel interpolates with `approx.h: lowcut_of`.
 
-### Transformer low-pass (XFLP, HF leakage rolloff)
-
-Analog `H(s) = wc/(s + wc)` at ~18 kHz. Bilinear →
-`b0 = b1 = wc/(k+wc)`, `a1 = (wc-k)/(k+wc)`. Baked:
-`XFLP_B0 = XFLP_B1 = 0.5618422`, `XFLP_A1 = 0.1236844`.
-
 ## Nonlinearities (baked, not solved, in Tier B)
 
 The C674x cannot run the Koren `exp/log` plate map or a per-sample Newton
@@ -120,10 +114,10 @@ Shared-rail droop is a one-pole envelope on `|u|` at **0.48 Hz**
 
 | Item | Tier A | Tier B | Justification |
 |------|--------|--------|---------------|
-| Oversampling | 8x | 1x | Aliasing risk measured small for this soft, mostly even-order nonlinearity at bass frequencies; 2x is the documented fallback if a hot treble transient aliases audibly. |
+| Oversampling | 8x | V1B 2x; V1A 4x | V1A receives the boosted FMV output, so it uses a 4x elliptic decimator with >=60 dB attenuation at the final 22.05 kHz Nyquist edge. V1B is clean at nominal Input and uses a compact 2x prefilter to preserve DSP headroom. |
 | Tube map | Koren exp/log per sample | 513-pt LUT + lerp | Interp error << device tolerance; A/B magnitude within 0.17 dB. |
 | Sag | vk bias shift | compression multiply | Same slow envelope; H2>H3 preserved. |
 | VOLUME loading | modeled node | constant `CAL_VOL_NOM=0.64` | Tone-loading effect is 2nd order; folded to a constant. |
-| Transformer | tanh LF sat + 18 kHz | cubic soft-sat + 18 kHz | No `tanh`; cubic matches the first saturating term. |
+| White follower | provisional nonlinear branch | calibrated clean 0.92 loss | An isolated 1/4-inch capture is required before adding follower distortion. |
 
 See `03-validation.md` for how each reduction is held to a numeric tolerance.

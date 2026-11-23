@@ -4,60 +4,54 @@
   "author": "matheusbrasil",
   "id": "0400A001",
   "allow_any_id": true,
-  "version": "1.00",
+  "version": "1.12",
   "display": "DUKE DI",
   "badge": "DK",
-  "description": "White-box 12AU7 preamp/DI after the Noble DI: two starved-heater triode stages, an interactive passive FMV tone stack (Bass/Treble) derived by nodal analysis, switchable treble-dependent low-cut (~82-154 Hz), White cathode follower, optional DI-transformer path. Clean, high-headroom, even-order voiced.",
+  "description": "BOM-first Nobelium/Noble 12AU7 preamp: interactive passive Bass/Trble, physical C8/R18 ROLLOFF, and the complete V2 White-follower 1/4-inch output path.",
   "kernel": "duke.c",
   "scaffold": "cleanroom",
   "kernel_section": "text",
   "opt_level": 2,
   "opt_for_space": null,
   "allow_stack": true,
-  "state_bytes": 128,
-  "dspload": 60,
+  "state_bytes": 184,
+  "dspload": 128,
   "const_blob": {
     "symbol": "duke_tables",
-    "words": 1164,
+    "words": 1869,
     "init": "tables.bin"
   },
   "params": [
     {
-      "name": "Gain",
+      "name": "Input",
       "max": 100,
-      "default": 40,
-      "explanation": "Input drive into the first 12AU7. Low = clean and open; high = starved-tube compression and even-order grit. A deliberate addition - the circuit has no gain control."
+      "default": 50,
+      "explanation": "Virtual source level into V1B. 50 is the calibrated nominal instrument level; lower values suit quieter sources, higher values emulate a hotter active bass or stronger attack. This is not a physical Nobelium panel control."
     },
     {
       "name": "Bass",
       "max": 100,
-      "default": 50,
-      "explanation": "Low end of the interactive passive FMV stack (BASS A250k rheostat). Noon is the natural voiced curve; up adds weight. Interacts with Treble."
+      "default": 0,
+      "explanation": "Boost-only low shelf from the Nobelium BASS A250k control. 0 is the manual's flat reference; its travel is calibrated to measured Noble captures, so 50 corresponds to the physical noon response rather than an arbitrary digital midpoint."
     },
     {
-      "name": "Treble",
+      "name": "Trble",
       "max": 100,
-      "default": 50,
-      "explanation": "High end of the interactive passive FMV stack (TREBLE A250k, C6 270p). Noon is the natural voiced curve; up adds air. Interacts with Bass and sets the low-cut corner."
+      "default": 0,
+      "explanation": "Boost-only high shelf from the Nobelium TREBLE A250k control. 0 is the manual's flat reference; higher values add presence and interact with Bass."
     },
     {
       "name": "Level",
       "max": 100,
       "default": 80,
       "curve": "stock_vol",
-      "explanation": "Output level. 80 is unity gain, 100 is +3.5 dB."
+      "explanation": "Output trim for the Nobelium 1/4-inch VOLUME path. 80 is unity, 100 is +3.5 dB."
     },
     {
       "name": "LoCut",
       "values": ["OFF", "ON"],
       "default": 0,
-      "explanation": "Low-cut (the ROLLOFF switch): C8 4n7 into R18 220k, corner ~82-154 Hz depending on Treble. Tames sub-bass rumble."
-    },
-    {
-      "name": "XFMR",
-      "values": ["OFF", "ON"],
-      "default": 0,
-      "explanation": "DI-transformer path (JT-DB-EPC). OFF is the transformerless 1/4-inch output; ON adds the XLR transformer weight and low-end core saturation."
+      "explanation": "Physical Nobelium ROLLOFF network: C8 4n7 and R18 220k, solved together with the interactive tone stack."
     }
   ]
 }

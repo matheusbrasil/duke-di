@@ -1,70 +1,62 @@
 #!/usr/bin/env python3
-"""ab_test.py - A/B validation: Tier B kernel (duke.c, host-compiled) vs the
-Tier A golden reference (duke_ref.py).
+"""Tier-A/Tier-B regression gate for the revised Nobelium topology.
 
-The two tiers are deliberately different reductions (Tier A oversamples and
-shifts the cathode bias for sag; Tier B runs at base rate with compression-
-multiply sag, and bakes every nonlinearity into LUTs the C674x can afford).
-So this is NOT a sample-exact null test. It checks that the shipped kernel
-preserves the *character* of the reference within stated engineering
-tolerances, and that it is numerically safe.
-
-Pass/fail tolerances (justification in docs/03-validation.md):
-  T1 broadband gain (1 kHz, small signal)   : within 1.5 dB of Tier A
-  T2 magnitude response 50 Hz..12 kHz       : within 2.0 dB of Tier A
-  T3 even-order dominance (H2 > H3)          : kernel H2 >= 4 dB above H3 at
-                                               moderate drive, tracking Tier A
-  T4 FMV stack tilt authority (Bass/Treble)  : >= 8 dB low/high-vs-mid tilt
-                                               over the full knob sweep
-  T5 low-cut at 45 Hz when engaged           : <= -4 dB vs low-cut off
-  T6 numerical safety                        : finite, |y| < 8 (kernel clamp)
-  T7 base-rate aliasing floor                : worst in-band spur <= -24 dBc
-
-The EQ is ONE interactive passive FMV stack (nodal model in tonestack.py), not
-two independent shelves, so T4 probes tilt authority over the sweep rather than
-a fixed single-frequency shelf gain. Even-order dominance (T3) is a moderate-
-drive phenomenon: past clipping onset odd harmonics rise in BOTH tiers, so T3
-uses a moderate level and also checks the kernel tracks the reference there.
-
-Tolerances are loose on purpose: Tier B is a CPU-budget reduction, not a
-clone of Tier A. They are tight enough to catch a broken filter, a dead
-nonlinearity, a wrong EQ corner, or an unstable section. T6's bound is the
-kernel's own output clamp (SAFETY.md): staying strictly inside it means no
-sample was scrubbed to zero (no dropouts) and nothing diverged. Output can
-exceed unity at extreme settings - that is a hot preamp clipping, expected.
+Contract: INPUT is virtual source level (50 is nominal); BASS/TREBLE are flat
+at 0 and boost from there; LOCUT is the physical C8/R18 network; the model
+uses only the complete 1/4-inch V2 White-follower output path.
 """
+import math
 import os
-import sys
 import struct
 import subprocess
-import math
+import sys
+import tempfile
+
 import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "..", "reference", "python"))
 import duke_ref as ref  # noqa: E402
 
-HOST = os.path.join(HERE, "host_duke")
+HOST = os.path.join(HERE, "host_duke.exe" if os.name == "nt" else "host_duke")
 FS = 44100.0
 
 
-def run_kernel(x, gain, bass, treble, level, lowcut, xfmr):
+def run_kernel(x, input_level, bass, treble, level, lowcut):
     raw = struct.pack(f"<{len(x)}d", *np.asarray(x, dtype=np.float64))
-    args = [HOST, f"{gain}", f"{bass}", f"{treble}",
-            f"{level}", f"{1 if lowcut else 0}", f"{1 if xfmr else 0}"]
-    p = subprocess.run(args, input=raw, capture_output=True)
+    args = [HOST, f"{input_level}", f"{bass}", f"{treble}", f"{level}",
+            f"{1 if lowcut else 0}"]
+    # File handles avoid a Windows anonymous-pipe deadlock for longer renders:
+    # the harness emits one double for every input double.
+    with tempfile.TemporaryFile() as fin, tempfile.TemporaryFile() as fout:
+        fin.write(raw)
+        fin.seek(0)
+        p = subprocess.run(args, stdin=fin, stdout=fout, stderr=subprocess.PIPE)
+        fout.seek(0)
+        output = fout.read()
     if p.returncode != 0:
         raise RuntimeError(f"host_duke failed: {p.stderr.decode()}")
-    return np.frombuffer(p.stdout, dtype=np.float64)
+    y = np.frombuffer(output, dtype=np.float64)
+    if len(y) != len(x):
+        raise RuntimeError(f"host_duke emitted {len(y)} samples for {len(x)} input samples")
+    return y
+
+
+def run_ref(x, input_level, bass, treble, level, lowcut):
+    return ref.process(x, input=input_level, bass=bass, treble=treble,
+                       level=level, lowcut=lowcut, output="quarter")
 
 
 def db(x):
-    return 20.0 * math.log10(max(x, 1e-12))
+    return 20.0 * math.log10(max(float(x), 1e-12))
+
+
+def rms(x):
+    return float(np.sqrt(np.mean(np.asarray(x) ** 2)))
 
 
 def mag_at(y, f, fs=FS):
-    seg = y[len(y) // 4:]
-    seg = seg * np.hanning(len(seg))
+    seg = np.asarray(y)[len(y) // 4:] * np.hanning(len(y) - len(y) // 4)
     Y = np.abs(np.fft.rfft(seg))
     fr = np.fft.rfftfreq(len(seg), 1.0 / fs)
     k = int(np.argmin(np.abs(fr - f)))
@@ -72,116 +64,114 @@ def mag_at(y, f, fs=FS):
 
 
 def sine(f, n=8192, amp=0.1):
-    t = np.arange(n) / FS
-    return amp * np.sin(2.0 * np.pi * f * t)
+    return amp * np.sin(2.0 * np.pi * f * np.arange(n) / FS)
 
 
-def settle(y, keep=0.5):
+def settled(y, keep=0.5):
     return y[int(len(y) * (1.0 - keep)):]
 
 
 def main():
     if not os.path.exists(HOST):
-        print("ERROR: build the host harness first: bash build_host.sh")
+        build_cmd = ".\\validation\\build_host.ps1" if os.name == "nt" else "bash validation/build_host.sh"
+        print(f"ERROR: build the host harness first: {build_cmd}")
         return 1
 
     results = []
 
     def check(name, ok, detail):
-        results.append((name, ok, detail))
+        results.append((name, bool(ok), detail))
         print(f"  [{'PASS' if ok else 'FAIL'}] {name}: {detail}")
 
-    # ---- T1 broadband gain at 1 kHz, small signal -----------------------
+    # Finished-manual baseline: 0/0 is flat, nominal INPUT, 1/4 path.
+    base = dict(input_level=0.5, bass=0.0, treble=0.0, level=0.8,
+                lowcut=False)
+
+    # T1: small-signal level at the documented flat setting.
     x = sine(1000.0, amp=0.02)
-    yk = run_kernel(x, 0.5, 0.5, 0.5, 0.8, False, False)
-    yr = ref.process(x, gain=0.5, bass=0.5, treble=0.5, level=0.8)
-    gk = np.sqrt(np.mean(settle(yk) ** 2)) / np.sqrt(np.mean(settle(x) ** 2))
-    gr = np.sqrt(np.mean(settle(yr) ** 2)) / np.sqrt(np.mean(settle(x) ** 2))
-    check("T1 gain@1k", abs(db(gk) - db(gr)) <= 1.5,
-          f"kernel {db(gk):+.2f} dB vs ref {db(gr):+.2f} dB "
-          f"(dev {db(gk)-db(gr):+.2f})")
+    yk, yr = run_kernel(x, **base), run_ref(x, **base)
+    gk, gr = rms(settled(yk)) / rms(settled(x)), rms(settled(yr)) / rms(settled(x))
+    check("T1 1/4 gain@1k", abs(db(gk) - db(gr)) <= 1.5,
+          f"kernel {db(gk):+.2f} dB vs ref {db(gr):+.2f} dB (dev {db(gk)-db(gr):+.2f})")
 
-    # ---- T2 magnitude response 50 Hz .. 12 kHz --------------------------
-    freqs = [50, 110, 250, 500, 1000, 2000, 4000, 8000, 12000]
-    worst = 0.0
-    worst_f = 0
-    for f in freqs:
+    # T2: broadband response of the complete 1/4 path.
+    worst, worst_f = 0.0, 0
+    for f in (50, 90, 110, 250, 500, 1000, 2000, 4000, 8000, 12000):
         x = sine(f, amp=0.02)
-        yk = run_kernel(x, 0.5, 0.5, 0.5, 0.8, False, False)
-        yr = ref.process(x, gain=0.5, bass=0.5, treble=0.5, level=0.8)
-        mk = db(mag_at(yk, f))
-        mr = db(mag_at(yr, f))
-        d = abs(mk - mr)
-        if d > worst:
-            worst, worst_f = d, f
-    check("T2 magresp", worst <= 2.0,
-          f"worst dev {worst:.2f} dB at {worst_f} Hz")
+        delta = abs(db(mag_at(run_kernel(x, **base), f)) - db(mag_at(run_ref(x, **base), f)))
+        if delta > worst:
+            worst, worst_f = delta, f
+    check("T2 1/4 magnitude", worst <= 2.0, f"worst dev {worst:.2f} dB at {worst_f} Hz")
 
-    # ---- T3 even-order dominance (moderate drive) -----------------------
-    # Even-order dominance is the tube's moderate-drive signature; past
-    # clipping onset odd harmonics rise in both tiers, so probe at a moderate
-    # level and confirm the kernel tracks the reference there.
+    # T3: V1B/V1A must retain even-order character at nominal INPUT.
     x = sine(110.0, amp=0.12)
-    yk = run_kernel(x, 0.5, 0.5, 0.5, 0.8, False, False)
-    yr = ref.process(x, gain=0.5, bass=0.5, treble=0.5, level=0.8)
+    yk, yr = run_kernel(x, **base), run_ref(x, **base)
     h1, h2, h3 = (mag_at(yk, 110), mag_at(yk, 220), mag_at(yk, 330))
     even_margin = db(h2) - db(h3)
-    r_margin = db(mag_at(yr, 220)) - db(mag_at(yr, 330))
-    check("T3 even>odd", even_margin >= 4.0 and abs(even_margin - r_margin) <= 3.0,
-          f"H2 {db(h2/h1):+.1f} dBc, H2-H3 {even_margin:+.1f} dB "
-          f"(ref {r_margin:+.1f})")
+    ref_margin = db(mag_at(yr, 220)) - db(mag_at(yr, 330))
+    check("T3 even-order", even_margin >= 4.0 and abs(even_margin - ref_margin) <= 3.0,
+          f"H2 {db(h2/h1):+.1f} dBc, H2-H3 {even_margin:+.1f} dB (ref {ref_margin:+.1f})")
 
-    # ---- T4 interactive FMV stack tilt authority ------------------------
-    # One interactive network (not independent shelves): Bass sets low-vs-mid
-    # tilt, Treble sets high-vs-mid tilt. Check authority over the full sweep.
-    def tilt(f_hi, f_mid, bassv, trebv):
-        a = db(mag_at(run_kernel(sine(f_hi, amp=0.02), 0.5, bassv, trebv,
-                                 0.8, False, False), f_hi))
-        b = db(mag_at(run_kernel(sine(f_mid, amp=0.02), 0.5, bassv, trebv,
-                                 0.8, False, False), f_mid))
-        return a - b
+    # T4: boost-only Bass/Treble, relative to the documented 0/0 flat state.
+    def tilt(freq, mid, bass, treble):
+        yy = run_kernel(sine(freq, amp=0.02), 0.5, bass, treble, 0.8, False)
+        mm = run_kernel(sine(mid, amp=0.02), 0.5, bass, treble, 0.8, False)
+        return db(mag_at(yy, freq)) - db(mag_at(mm, mid))
 
-    bass_auth = tilt(80, 700, 1.0, 0.5) - tilt(80, 700, 0.0, 0.5)
-    treb_auth = tilt(3500, 700, 0.5, 1.0) - tilt(3500, 700, 0.5, 0.0)
-    check("T4 bass authority", bass_auth >= 8.0,
-          f"{bass_auth:+.1f} dB low-vs-mid over sweep")
-    check("T4 treble authority", treb_auth >= 8.0,
-          f"{treb_auth:+.1f} dB high-vs-mid over sweep")
+    bass_boost = tilt(80, 700, 1.0, 0.0) - tilt(80, 700, 0.0, 0.0)
+    treb_boost = tilt(3500, 700, 0.0, 1.0) - tilt(3500, 700, 0.0, 0.0)
+    check("T4 Bass boost from 0", bass_boost >= 4.0, f"{bass_boost:+.1f} dB low-vs-mid from flat")
+    check("T4 Treble boost from 0", treb_boost >= 4.0, f"{treb_boost:+.1f} dB high-vs-mid from flat")
 
-    # ---- T5 low-cut ------------------------------------------------------
-    xl = sine(45.0, amp=0.02)
-    off = db(mag_at(run_kernel(xl, 0.5, 0.5, 0.5, 0.8, False, False), 45))
-    on = db(mag_at(run_kernel(xl, 0.5, 0.5, 0.5, 0.8, True, False), 45))
-    check("T5 lowcut@45", on - off <= -4.0,
-          f"{on-off:.1f} dB at 45 Hz when engaged")
+    # T5: physical C8/R18 ROLLOFF must materially clean the low E fundamental.
+    x = sine(45.0, amp=0.02)
+    off = db(mag_at(run_kernel(x, 0.5, 0.0, 0.0, 0.8, False), 45))
+    on = db(mag_at(run_kernel(x, 0.5, 0.0, 0.0, 0.8, True), 45))
+    check("T5 physical LoCut", on - off <= -6.0, f"{on-off:.1f} dB at 45 Hz when enabled")
 
-    # ---- T6 numerical safety (incl. hard drive + transformer) -----------
-    x = np.concatenate([sine(110, amp=0.9), sine(2000, amp=0.9),
-                        np.zeros(256)])
-    safe = True
-    for g in (0.0, 0.5, 1.0):
-        for xf in (False, True):
-            y = run_kernel(x, g, 1.0, 1.0, 1.0, True, xf)
-            if not np.all(np.isfinite(y)) or np.max(np.abs(y)) >= 8.0:
-                safe = False
-    check("T6 safety", safe, "finite and inside the kernel clamp (|y|<8)")
+    # T7: exact silence plus extreme-control settling catches self-noise/ringing.
+    quiet_ok, worst_tail = True, 0.0
+    attack = np.concatenate([sine(110, n=4096, amp=0.8), np.zeros(44100)])
+    silence = np.zeros(8192)
+    for bass, treble in ((0.0, 1.0), (1.0, 1.0), (1.0, 0.0)):
+            args = (0.5, bass, treble, 0.5, False)
+            yz, ya = run_kernel(silence, *args), run_kernel(attack, *args)
+            tail = rms(ya[-8192:])
+            worst_tail = max(worst_tail, tail)
+            if (not np.all(np.isfinite(yz)) or not np.all(np.isfinite(ya)) or
+                    np.max(np.abs(yz)) > 1e-9 or np.max(np.abs(ya)) >= 8.0 or tail > 2e-5):
+                quiet_ok = False
+    check("T7 silence + settling", quiet_ok, f"worst post-attack tail RMS {worst_tail:.2e}")
 
-    # ---- T7 base-rate aliasing floor ------------------------------------
-    # The kernel has no oversampling (CPU budget); the LUT waveshaper folds
-    # some energy. A hot 7 kHz stress tone's worst non-harmonic in-band spur
-    # must stay down. Bass-range program rarely has fundamentals this high.
+    # T8: bright nonlinear stress for the dedicated 4x nonlinear path.
     x = sine(7000.0, amp=0.3)
-    y = run_kernel(x, 0.8, 0.5, 0.5, 0.8, False, False)
+    y = run_kernel(x, 0.8, 0.0, 1.0, 0.8, False)
     seg = y[len(y) // 4:] * np.hanning(len(y) - len(y) // 4)
-    Y = np.abs(np.fft.rfft(seg))
-    fr = np.fft.rfftfreq(len(seg), 1.0 / FS)
+    Y, fr = np.abs(np.fft.rfft(seg)), np.fft.rfftfreq(len(seg), 1.0 / FS)
     fund = Y[int(np.argmin(np.abs(fr - 7000)))]
-    spur = float(Y[fr < 6000].max())
-    alias_dbc = db(spur) - db(fund)
-    check("T7 aliasing", alias_dbc <= -24.0,
-          f"worst in-band spur {alias_dbc:.1f} dBc @7k hot")
+    alias_dbc = db(float(Y[fr < 6000].max())) - db(fund)
+    check("T8 aliasing", alias_dbc <= -24.0, f"worst in-band spur {alias_dbc:.1f} dBc @7k bright stress")
 
-    npass = sum(1 for _, ok, _ in results if ok)
+    # T9: the reported failure mode is a hard open low-E with both boosts at
+    # maximum.  Ignore true integer harmonics and look for folded/non-harmonic
+    # products in the audible band.  A full one-second FFT keeps 41 Hz bin
+    # aligned and lets the slow shared-cathode state settle.
+    f0, n0 = 41.0, 88200
+    x = 0.75 * np.sin(2.0 * np.pi * f0 * np.arange(n0) / FS)
+    y = run_kernel(x, 0.5, 1.0, 1.0, 0.5, False)[-44100:]
+    Y = np.abs(np.fft.rfft(y * np.hanning(len(y))))
+    fr = np.fft.rfftfreq(len(y), 1.0 / FS)
+    fund = Y[int(np.argmin(np.abs(fr - f0)))]
+    nonharmonic = np.ones_like(Y, dtype=bool)
+    nonharmonic[:3] = False
+    for harmonic in range(1, int(20000.0 / f0) + 1):
+        k = int(np.argmin(np.abs(fr - harmonic * f0)))
+        nonharmonic[max(0, k - 2):k + 3] = False
+    spur = float(Y[nonharmonic].max())
+    check("T9 low-E extreme alias", db(spur) - db(fund) <= -50.0,
+          f"worst non-harmonic spur {db(spur) - db(fund):.1f} dBc @ Bass/Trble 100")
+
+    npass = sum(ok for _, ok, _ in results)
     print(f"\n{npass}/{len(results)} checks passed")
     return 0 if npass == len(results) else 1
 

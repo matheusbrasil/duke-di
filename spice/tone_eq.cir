@@ -1,4 +1,4 @@
-* tone_eq.cir - Duke DI interactive FMV tone stack + treble-dependent low-cut.
+* tone_eq.cir - Nobelium interactive FMV tone stack + ROLLOFF HPF.
 *
 * Node-for-node reproduction of the Noble/Nobelium passive tone network, as
 * read from the schematic (files/sch/audio_full.png) and documented in
@@ -14,15 +14,18 @@
 *   T  = TREBLE wiper = stack OUTPUT
 *   Tt = TREBLE top / C6 right (treble bleed)
 *
-* Pots are A250k. wt/wb are WIPER FRACTIONS (already taper-mapped: noon ~0.15).
+* Pots are A250k. wt/wb are the physical-control fractions used by this
+* circuit experiment: 0 = fully counter-clockwise (the product manual's
+* flat-response reference), 1 = fully clockwise / maximum boost.
 *   TREBLE wiper: Rtop(Tt-T) = (1-wt)*250k, Rbot(T-A) = wt*250k; wt=1 -> bright.
 *   BASS is a rheostat A-B of value wb*250k.
 * EPS = 1 ohm guards the pot ends against exact 0 ohm.
 *
 * Run:   ngspice -b tone_eq.cir   -> writes ../validation/spice_tone_ac.txt
-* Sweep wt, wb in 0..1 (noon ~0.15) and lowcut in {0,1} to explore.
+* Sweep wt, wb in 0..1 and lowcut in {0,1} to explore. The recorded node is
+* post-ROLLOFF, so the export validates the HPF instead of silently bypassing it.
 
-.param wt=0.15 wb=0.15 lowcut=1
+.param wt=0 wb=0 lowcut=1
 .param EPS=1
 .param RT_TOP={(1-wt)*250k + EPS}
 .param RT_BOT={wt*250k + EPS}
@@ -49,14 +52,14 @@ Rload T 0   1Meg
 
 * ---- ROLLOFF low-cut: C8 4n7 fed from the wiper into R18 220k -------------
 * fc = 1/(2*pi*(Zout(T)+220k)*4n7); switch shorts the cap when off.
-C8   T  nlc  4.7n
-R18  nlc 0   220k
+C8   T  out  4.7n
+R18  out 0   220k
 * lowcut=0 -> bypass C8 with a near-short; lowcut=1 -> cap in circuit (huge R)
-Rbyp T  nlc  {1e12*lowcut + 1e-3*(1-lowcut)}
+Rbyp T  out  {1e12*lowcut + 1e-3*(1-lowcut)}
 
 .control
   ac dec 50 10 100k
-  wrdata ../validation/spice_tone_ac.txt vdb(T)
+  wrdata ../validation/spice_tone_ac.txt vdb(out)
   quit
 .endc
 .end

@@ -64,6 +64,13 @@ FORCE_INLINE float tube_shape(float u) {
     return lut1(OFF_WS, WS_N, fidx);
 }
 
+/* 12AU7 plate-current delta from quiescence (amperes), sampled from the
+ * same Koren/load-line solution as tube_shape(). */
+FORCE_INLINE float tube_current(float u) {
+    float fidx = (u + WS_RANGE) * WS_ISTEP;
+    return lut1(OFF_CUR, WS_N, fidx);
+}
+
 /* GAIN knob (0..1) -> input drive factor. */
 FORCE_INLINE float drive_of(float gain01) {
     return lut1(OFF_DRV, DRV_N, gain01 * DRV_ISTEP);
@@ -90,16 +97,24 @@ FORCE_INLINE void eq_of(float treb01, float bass01, float *c) {
     }
 }
 
-/* Interpolated ROLLOFF low-cut {b0,b1,a1} for the current treble knob. */
-FORCE_INLINE void lowcut_of(float treb01, float *b0, float *b1, float *a1) {
-    float fidx = clampf(treb01 * LC_ISTEP, 0.0f, (float)(LC_N - 1) - 1e-4f);
-    int i = (int)fidx;
-    float fr = fidx - (float)i;
-    int r0 = OFF_LC + i * 3;
-    int r1 = r0 + 3;
-    *b0 = tbl(r0 + 0) + fr * (tbl(r1 + 0) - tbl(r0 + 0));
-    *b1 = tbl(r0 + 1) + fr * (tbl(r1 + 1) - tbl(r0 + 1));
-    *a1 = tbl(r0 + 2) + fr * (tbl(r1 + 2) - tbl(r0 + 2));
+/* Interpolated C8/R18 section {b0,b1,a1}, derived for both pots. */
+FORCE_INLINE void lowcut_of(float treb01, float bass01, float *b0, float *b1, float *a1) {
+    float ft = clampf(treb01 * EQ_ISTEP, 0.0f, (float)(EQ_N - 1) - 1e-4f);
+    float fb = clampf(bass01 * EQ_ISTEP, 0.0f, (float)(EQ_N - 1) - 1e-4f);
+    int ti = (int)ft, bj = (int)fb;
+    float rt = ft - (float)ti, rb = fb - (float)bj;
+    int r00 = OFF_LC + (ti * EQ_N + bj) * LC_STRIDE;
+    int r01 = r00 + LC_STRIDE;
+    int r10 = OFF_LC + ((ti + 1) * EQ_N + bj) * LC_STRIDE;
+    int r11 = r10 + LC_STRIDE;
+    float c[3];
+    int k;
+    for (k = 0; k < 3; k++) {
+        float v0 = tbl(r00 + k) + rb * (tbl(r01 + k) - tbl(r00 + k));
+        float v1 = tbl(r10 + k) + rb * (tbl(r11 + k) - tbl(r10 + k));
+        c[k] = v0 + rt * (v1 - v0);
+    }
+    *b0 = c[0]; *b1 = c[1]; *a1 = c[2];
 }
 
 #endif /* DUKE_APPROX_H */
