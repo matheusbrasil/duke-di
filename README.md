@@ -91,8 +91,12 @@ save a patch containing an experimental effect.
 ## Current status
 
 v1.13 passes the source lint, the 24 corner tests, the 9/9 A/B checks and the
-TI listing audit, and builds with TI CGT 8.5.0. It has not been installed on a
-pedal yet; the release package below is still v1.12.
+TI listing audit, and builds with TI CGT 8.5.0. On 2026-11-25 it replaced
+v1.12 on an MS-60B+ firmware 1.20 via the StompHacks fail-closed installer
+(uninstall first, then install), after a full backup with Auto Save OFF
+confirmed. The installed `.ZD2` and `.ZIC` were read back and match the build
+byte for byte; the effect list changed only in Duke's version string. The
+release package below is still v1.12.
 
 v1.12 has passed the source/host validation gates and was installed on an
 MS-60B+ firmware 1.20 via the StompHacks fail-closed installer. The resulting
