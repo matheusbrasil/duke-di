@@ -96,7 +96,7 @@ v1.12 on an MS-60B+ firmware 1.20 via the StompHacks fail-closed installer
 (uninstall first, then install), after a full backup with Auto Save OFF
 confirmed. The installed `.ZD2` and `.ZIC` were read back and match the build
 byte for byte; the effect list changed only in Duke's version string. The
-release package below is still v1.12.
+v1.13 release package below contains exactly those two files.
 
 v1.12 has passed the source/host validation gates and was installed on an
 MS-60B+ firmware 1.20 via the StompHacks fail-closed installer. The resulting
@@ -107,10 +107,12 @@ hardware cycle measurement; do not treat it as a measured DSP percentage.
 ## Download a ready-to-install release
 
 Users who do not intend to build the project should use the versioned package
-in [`releases/Duke-DI-v1.12`](releases/Duke-DI-v1.12). It contains the exact
+in [`releases/Duke-DI-v1.13`](releases/Duke-DI-v1.13). It contains the exact
 `MBDUKE.ZD2` **and** `MBDUKE.ZIC` pair validated on the pedal, plus SHA-256
 hashes and an installation guide. Download
-[`Duke-DI-v1.12-MS60BPlus.zip`](releases/Duke-DI-v1.12-MS60BPlus.zip) from the
-matching Git tag; do not rename or separate the two files.
+[`Duke-DI-v1.13-MS60BPlus.zip`](releases/Duke-DI-v1.13-MS60BPlus.zip) from the
+matching Git tag; do not rename or separate the two files. If v1.12 is
+installed, uninstall it first. The previous package stays in
+[`releases/Duke-DI-v1.12`](releases/Duke-DI-v1.12).
 
 Built on the [StompHacks](https://github.com/thammer/stomphacks) cleanroom ABI.
