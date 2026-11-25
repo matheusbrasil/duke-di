@@ -65,14 +65,15 @@
 #define B4E_A2          9.644954800e-01f
 
 /* ---- per-channel state layout inside instance[2] ----------------------- */
-/* state[0]=drive smoothed, [1]=level smoothed; firmware writes the init guard
- * at word SH_STATE_GUARD_WORD (= state_bytes/4 = 44), just past our region.
- * Channel A block at CHA, channel B at CHB; SB sections each (TDF2, 1 word). */
+/* state[0]=drive smoothed, [1]=level smoothed, [S_LOWC]=LoCut smoothed; the
+ * firmware writes the init guard at word SH_STATE_GUARD_WORD (= state_bytes/4),
+ * just past our region. Channel A block at CHA, channel B at CHB. */
 #define S_DRIVE 0
 #define S_LEVEL 1
 #define CHA     2
 #define SB      22
 #define CHB     (CHA + SB)
+#define S_LOWC  (CHB + SB)
 /* section indices within a channel block */
 #define Z_CATH   0    /* shared V1A/V1B cathode shift, normalised */
 #define Z_EQ     1    /* FMV tone stack, 3rd order -> words 1,2,3 */
@@ -172,6 +173,14 @@ FORCE_INLINE float tube_stage_4x(float x, float cath, float *idelta, float *os)
     os[0] = xnm1;
     os[9] = x;
     return y;
+}
+
+/* Zero one channel's SB-word state block (rare recovery path). */
+FORCE_INLINE void clear_block(float *s)
+{
+    int k;
+    for (k = 0; k < SB; k++)
+        s[k] = 0.0f;
 }
 
 /* V2A/V2B White cathode follower is a clean buffer at the signal levels the
@@ -275,16 +284,24 @@ void SH_AUDIO_FN(void **instance, void **ctx)
     eq_of(treb, bass, eqc);
     lowcut_of(treb, bass, &lcb0, &lcb1, &lca1);
 
-    /* smoothed gain/level carried in the shared state words */
+    /* smoothed gain/level/LoCut carried in the shared state words */
     float sD = st[S_DRIVE];
     float sL = st[S_LEVEL];
+    float sC = st[S_LOWC];
 
     for (i = 0; i < SH_FRAMES; i++) {
         sD += 0.01f * (drive_t - sD);      /* click-free drive/level */
         sL += 0.01f * (level_t - sL);
-        float a = duke_sample(eff[i], sD, eqc, lcb0, lcb1, lca1, lowc, sL, &st[CHA]);
+        sC += 0.01f * (lowc - sC);         /* click-free LoCut switch */
+        float a = duke_sample(eff[i], sD, eqc, lcb0, lcb1, lca1, sC, sL, &st[CHA]);
         float b = duke_sample(eff[i + SH_CH_B_OFFSET], sD, eqc,
-                              lcb0, lcb1, lca1, lowc, sL, &st[CHB]);
+                              lcb0, lcb1, lca1, sC, sL, &st[CHB]);
+
+        /* A non-finite result means this channel's filter state is poisoned;
+         * clear the block so the next sample recovers instead of staying
+         * silent until the chain is rebuilt.  (x - x) is NaN for NaN/Inf. */
+        if (!((a - a) == 0.0f)) clear_block(&st[CHA]);
+        if (!((b - b) == 0.0f)) clear_block(&st[CHB]);
 
         /* bypass crossfade (click-free, exact pass-through when fade=0) */
         float ina = eff[i];
@@ -302,4 +319,5 @@ void SH_AUDIO_FN(void **instance, void **ctx)
 
     st[S_DRIVE] = sD;
     st[S_LEVEL] = sL;
+    st[S_LOWC] = sC;
 }

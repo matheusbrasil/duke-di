@@ -33,7 +33,7 @@ void Fx_SFX_DukeDI(void **instance, void **ctx);
 #define SH_CTX_LEGACY_IN 8  /* zeros on MS-70CDR+; do not use */
 
 #define SH_SAMPLE_RATE   44100.0f  /* confirmed: stock DELAY_C computes samples = ms*441/10 (docs/zd2-abi.md) */
-#define SH_STATE_BYTES   184  /* zeroed at init; instance[2] */
+#define SH_STATE_BYTES   188  /* zeroed at init; instance[2] */
 
 /* init-written state guard: _init stores the magic at state word
  * SH_STATE_GUARD_WORD after zeroing. A kernel that dereferences ctx
@@ -41,12 +41,12 @@ void Fx_SFX_DukeDI(void **instance, void **ctx);
  * pass-through: during chain edits the audio fn can run against a
  * not-yet-initialized instance. */
 #define SH_STATE_GUARD       0x57464731u
-#define SH_STATE_GUARD_WORD  46
+#define SH_STATE_GUARD_WORD  47
 
 #define SH_NUM_PARAMS    5
 #define SH_PARAM_INPUT 5  /* 'Input' knob 0..100 -> coeff 0..1, default 50 */
 #define SH_PARAM_BASS 6  /* 'Bass' knob 0..100 -> coeff 0..1, default 0 */
-#define SH_PARAM_TRBLE  7  /* 'Trble' knob 0..100 -> coeff 0..1, default 0 */
+#define SH_PARAM_TRBLE 7  /* 'Trble' knob 0..100 -> coeff 0..1, default 0 */
 #define SH_PARAM_LEVEL 8  /* 'Level' knob 0..100 -> stock VOL curve amplitude 0..1.5 (unity at 80), default 80 */
 #define SH_PARAM_LOCUT 9  /* 'LoCut' knob 0..1 -> coeff 0..1, default 0 */
 

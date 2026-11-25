@@ -38,9 +38,11 @@ FORCE_INLINE float tbl(int i) {
     return f[i];
 }
 
-/* Clamp helper (branches compile to compares + selects, no call). */
+/* Clamp helper (branches compile to compares + selects, no call).  Written so
+ * NaN fails the first test and becomes `lo`: a NaN table index would otherwise
+ * convert to a huge integer and read far outside duke_tables[]. */
 FORCE_INLINE float clampf(float x, float lo, float hi) {
-    if (x < lo) x = lo;
+    if (!(x >= lo)) x = lo;
     if (x > hi) x = hi;
     return x;
 }

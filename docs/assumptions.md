@@ -106,8 +106,9 @@ resolved them, and the model now reflects the actual circuit.
   playground id. The author entry lives in `ids/effect-authors.local.json`
   (tracked here) and is merged into the clone's ledger by `tools/stage_build.
   sh`, because the clone is gitignored and clobbered by re-clone.
-- **state_bytes 184** with the firmware guard at word 46. The additional state
-  holds the causal 2x/4x interpolation history and the V1A decimator delays.
+- **state_bytes 188** with the firmware guard at word 47. The additional state
+  holds the causal 2x/4x interpolation history, the V1A decimator delays and
+  the smoothed LoCut amount.
 
 ## Not done in this session (needs external tools)
 

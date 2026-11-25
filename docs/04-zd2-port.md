@@ -2,7 +2,7 @@
 
 The Duke DI kernel targets the MS-60B+ C674x through the StompHacks cleanroom
 ABI. Its effect identity is `0x0400A001` (PREAMP group), filename `MBDUKE`,
-author prefix `MB`, and current version is **1.12**.
+author prefix `MB`, and current version is **1.13**.
 
 ## Embedded design
 
@@ -27,10 +27,12 @@ so 2x protects headroom without making the effect impractically expensive.
 
 ## State and safety
 
-The manifest declares `state_bytes: 184`, including the local-oversampling and
-filter delay states. This is within the 192-byte firmware limit used by this
-effect. A guard word prevents processing before state initialisation, and every
-output sample is finite/clamped before it returns to the audio bus.
+The manifest declares `state_bytes: 188`, including the local-oversampling and
+filter delay states and the smoothed LoCut amount. This is within the 192-byte
+firmware limit used by this effect. A guard word prevents processing before
+state initialisation, and every output sample is finite/clamped before it
+returns to the audio bus. If a channel produces a non-finite sample, its state
+block is cleared so it recovers on the next sample instead of staying silent.
 
 The kernel sits in `.text`, not the tiny `.audio` region. It has a stack frame
 for local filter coefficient arrays, so the manifest intentionally uses
@@ -55,7 +57,7 @@ The MS-60B+ pages five parameters over its four physical encoders:
 | Level | 0..100 / 80 | 1/4-inch path final trim; 80 is unity. |
 | LoCut | OFF/ON / OFF | Physical C8/R18 ROLLOFF network. |
 
-There is no `OUT` or `XFMR` switch in v1.12. The final design models the
+There is no `OUT` or `XFMR` switch in v1.13. The final design models the
 physical 1/4-inch path only; XLR balance, ground lift and Jensen transformer
 behaviour are unavailable on the MS-60B+ output hardware.
 

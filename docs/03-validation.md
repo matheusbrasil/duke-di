@@ -71,7 +71,7 @@ a *broken* model while allowing the *intended* reductions.
 | T8 | Bright aliasing | worst spur **≤ -24 dBc** on a hot 7 kHz stress tone | Exercises the oversampled V1A nonlinear path. |
 | T9 | Low-E extreme alias | non-harmonic spur **≤ -50 dBc** | Reproduces a hard 41 Hz attack with Bass/Trble at 100; catches folded products that simple EQ sweeps miss. |
 
-Current v1.12 status: **9/9 pass**. Measured T1 deviation is **+0.01 dB**,
+Current v1.13 status (unchanged from v1.12): **9/9 pass**. Measured T1 deviation is **+0.01 dB**,
 T2 worst deviation **1.80 dB** at 12 kHz, T8 bright spur **-56.8 dBc**, and
 T9 low-E extreme non-harmonic spur **-63.4 dBc**. The latter two replace the
 old base-rate alias tolerance with the attack cases that matter musically.
