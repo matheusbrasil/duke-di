@@ -2,7 +2,7 @@
 
 The Duke DI kernel targets the MS-60B+ C674x through the StompHacks cleanroom
 ABI. Its effect identity is `0x0400A001` (PREAMP group), filename `MBDUKE`,
-author prefix `MB`, and current version is **1.13**.
+author prefix `MB`, and current version is **1.14**.
 
 ## Embedded design
 
@@ -57,7 +57,7 @@ The MS-60B+ pages five parameters over its four physical encoders:
 | Level | 0..100 / 80 | 1/4-inch path final trim; 80 is unity. |
 | LoCut | OFF/ON / OFF | Physical C8/R18 ROLLOFF network. |
 
-There is no `OUT` or `XFMR` switch in v1.13. The final design models the
+There is no `OUT` or `XFMR` switch in v1.14. The final design models the
 physical 1/4-inch path only; XLR balance, ground lift and Jensen transformer
 behaviour are unavailable on the MS-60B+ output hardware.
 
@@ -84,7 +84,9 @@ Pop-Location
 .\.venv\Scripts\python.exe .\tools\zic.py check .\third_party\stomphacks\effects\duke\build\MBDUKE.ZIC
 ```
 
-`dspload: 128` is a conservative scheduler declaration. The pedal uses it for
-admission control but does not measure cycles. It must not be reported as an
-actual DSP percentage; only an independent hardware-cycle instrument could do
-that.
+`dspload: 100` is a scheduler declaration. The pedal uses it for admission
+control (the chain total must stay at or below 270) but does not measure
+cycles, and it is not a DSP percentage. Since v1.14 it is based on an
+on-pedal measurement with the cycle probe (`docs/07-cycle-probe.md`): about
+14,060 cycles per call on average and about 19,950 worst case, i.e. roughly
+61 and 87 load units at ~230 cycles per unit. Up to v1.13 it was 128.

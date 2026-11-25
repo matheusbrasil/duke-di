@@ -4,7 +4,7 @@
   "author": "matheusbrasil",
   "id": "0400A001",
   "allow_any_id": true,
-  "version": "1.13",
+  "version": "1.14",
   "display": "DUKE DI",
   "badge": "DK",
   "description": "BOM-first Nobelium/Noble 12AU7 preamp: interactive passive Bass/Trble, physical C8/R18 ROLLOFF, and the complete V2 White-follower 1/4-inch output path.",
@@ -15,7 +15,7 @@
   "opt_for_space": null,
   "allow_stack": true,
   "state_bytes": 188,
-  "dspload": 128,
+  "dspload": 100,
   "const_blob": {
     "symbol": "duke_tables",
     "words": 1869,

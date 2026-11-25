@@ -158,12 +158,12 @@ Two findings that are easy to miss:
 
 ## Step 6 - Measure the real DSP load (on hardware)
 
-`manifest.json` declares `"dspload": 128`. The pedal **trusts this number
+`manifest.json` declares `"dspload": 100`. The pedal **trusts this number
 completely** - it sums declared loads per patch and refuses an effect that
-would overflow the budget, but it never measures cycles. 128 is conservative
-scheduler metadata for the two-triode/oversampling path, not a measured DSP
-percentage. Before relying on it in dense patches, obtain an independent
-hardware-cycle measurement and keep headroom.
+would overflow the budget, but it never measures cycles. The value comes from
+an on-pedal measurement with the cycle probe (`docs/07-cycle-probe.md`):
+roughly 61 load units on average and 87 in the worst call, so 100 keeps some
+headroom. Re-measure after any kernel change that could raise its cost.
 
 ## Step 7 - Pre-flight, off the pedal
 

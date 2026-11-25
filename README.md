@@ -10,9 +10,14 @@ where possible against independent Noble NAM A2 captures. It deliberately
 models the complete unbalanced 1/4-inch path, not an imagined XLR transformer
 emulation: the MS-60B+ has neither a balanced output nor transformer isolation.
 
-## What is in v1.13
+## What is in v1.14
 
-- Robustness update over v1.12, same sound: a channel whose output turns
+- Declared DSP load lowered from 128 to 100, based on an on-pedal cycle
+  measurement (`docs/07-cycle-probe.md`): about 14,060 cycles per call on
+  average and about 19,950 in the worst call, i.e. roughly 61 and 87 load
+  units. This frees budget for other effects in the same chain. The audio
+  kernel is unchanged from v1.13.
+- v1.13 robustness update over v1.12, same sound: a channel whose output turns
   non-finite clears its filter state and recovers on the next sample; the
   LoCut switch fades instead of stepping; a NaN table index is clamped to the
   table instead of reading outside it. State grows from 184 to 188 bytes.
@@ -90,6 +95,10 @@ save a patch containing an experimental effect.
 
 ## Current status
 
+v1.14 differs from v1.13 only in the declared `dspload` (100 instead of 128);
+it builds with TI CGT 8.5.0 and passes the TI listing audit. It has not been
+installed on a pedal yet; the pedal and the release package below are v1.13.
+
 v1.13 passes the source lint, the 24 corner tests, the 9/9 A/B checks and the
 TI listing audit, and builds with TI CGT 8.5.0. On 2026-11-25 it replaced
 v1.12 on an MS-60B+ firmware 1.20 via the StompHacks fail-closed installer
@@ -101,8 +110,9 @@ v1.13 release package below contains exactly those two files.
 v1.12 has passed the source/host validation gates and was installed on an
 MS-60B+ firmware 1.20 via the StompHacks fail-closed installer. The resulting
 `.ZD2` and `.ZIC` were read back byte-for-byte, and Auto Save OFF was confirmed
-by the pedal. `dspload: 128` is conservative declaration metadata, **not** a
-hardware cycle measurement; do not treat it as a measured DSP percentage.
+by the pedal. `dspload` is declaration metadata the pedal trusts for its
+270-unit budget, not a percentage. Since v1.14 it is 100, chosen above the
+measured worst case (~87 units, `docs/07-cycle-probe.md`) with some margin.
 
 ## Download a ready-to-install release
 

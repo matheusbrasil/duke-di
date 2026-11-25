@@ -68,12 +68,14 @@ call of about **19,950 cycles** (the decaying reading moved between 19,700
 and 19,950 over 29 s). That is about 42 % above the mean; the counter
 measures elapsed time, so this most likely includes interrupts landing during
 the call. At ~230 cycles per load unit, the mean corresponds to a load of
-about 61 and the worst call to about 87, both under the declared 128.
+about 61 and the worst call to about 87, both under the 128 declared at the
+time. v1.14 lowers the declaration to 100 on the strength of this result.
+The kernel did not change, so the measurement still applies.
 
 ## Reading the result
 
 At an inferred ~372 MHz a 16-sample block lasts about 135,000 cycles. The
 static estimate for Duke v1.13 is ~14,100 cycles per call; StompHacks'
 budget of 270 load units corresponds to roughly 62,000 cycles (see the
-firmware notes). A measured mean well under that range supports the declared
-`dspload: 128`; the peak shows how much interrupts and cache misses add.
+firmware notes). The declared `dspload` should stay above the load implied
+by the peak, since the peak shows how much interrupts and cache misses add.
