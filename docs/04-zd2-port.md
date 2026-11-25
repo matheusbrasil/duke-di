@@ -28,10 +28,14 @@ so 2x protects headroom without making the effect impractically expensive.
 ## State and safety
 
 The manifest declares `state_bytes: 188`, including the local-oversampling and
-filter delay states and the smoothed LoCut amount. This is within the 192-byte
-firmware limit used by this effect. A guard word prevents processing before
-state initialisation, and every output sample is finite/clamped before it
-returns to the audio bus. If a channel produces a non-finite sample, its state
+filter delay states and the smoothed LoCut amount. The MS-60B+ firmware 1.20
+gives every effect slot a fixed 672-byte state buffer in on-chip RAM (boot
+setup `FUN_c0231220`: six buffers at `0x11F01400 + k*0x2A0`), so 672 bytes is
+the real limit. StompHacks' generator is stricter and caps `state_bytes` at
+192 ("proven floor"); Duke's 188 bytes plus the guard word fit both.
+
+A guard word prevents processing before state initialisation, and every
+output sample is finite/clamped before it returns to the audio bus. If a channel produces a non-finite sample, its state
 block is cleared so it recovers on the next sample instead of staying silent.
 
 The kernel sits in `.text`, not the tiny `.audio` region. It has a stack frame

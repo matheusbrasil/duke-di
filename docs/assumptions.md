@@ -108,7 +108,9 @@ resolved them, and the model now reflects the actual circuit.
   sh`, because the clone is gitignored and clobbered by re-clone.
 - **state_bytes 188** with the firmware guard at word 47. The additional state
   holds the causal 2x/4x interpolation history, the V1A decimator delays and
-  the smoothed LoCut amount.
+  the smoothed LoCut amount. The firmware's real per-slot limit is 672 bytes
+  (fixed buffers set up at boot by `FUN_c0231220`); StompHacks' generator
+  enforces a stricter 192-byte cap, which Duke also fits.
 
 ## Not done in this session (needs external tools)
 
