@@ -96,8 +96,11 @@ save a patch containing an experimental effect.
 ## Current status
 
 v1.14 differs from v1.13 only in the declared `dspload` (100 instead of 128);
-it builds with TI CGT 8.5.0 and passes the TI listing audit. It has not been
-installed on a pedal yet; the pedal and the release package below are v1.13.
+it builds with TI CGT 8.5.0 and passes the TI listing audit. On 2026-11-25 it
+replaced v1.13 on the MS-60B+ firmware 1.20 with the same safe sequence
+(backup, Auto Save OFF, uninstall first, then install); the installed `.ZD2`
+and `.ZIC` match the build byte for byte and the effect list changed only in
+Duke's version digit. The release package below is still v1.13.
 
 v1.13 passes the source lint, the 24 corner tests, the 9/9 A/B checks and the
 TI listing audit, and builds with TI CGT 8.5.0. On 2026-11-25 it replaced
