@@ -9,7 +9,8 @@
       "status": "assigned",
       "effects": [
         {"name": "FETCOMP", "id": "0100a000", "category": "DYNAMICS"},
-        {"name": "Duke DI", "id": "0400a001", "category": "PREAMP (MS-60B+)"}
+        {"name": "Duke DI", "id": "0400a001", "category": "PREAMP (MS-60B+)"},
+        {"name": "Cycle Probe", "id": "0900a002", "category": "SFX (MS-60B+), test tool"}
       ]
     }
   ]

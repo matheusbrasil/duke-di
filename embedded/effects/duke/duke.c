@@ -238,7 +238,12 @@ FORCE_INLINE float duke_sample(float x, float drive, const float *eqc,
     return u * vol;
 }
 
-void SH_AUDIO_FN(void **instance, void **ctx)
+/* The cycle probe (embedded/effects/probe) includes this file and defines
+ * DUKE_KERNEL to inline the kernel inside its timed wrapper. */
+#ifndef DUKE_KERNEL
+#define DUKE_KERNEL void SH_AUDIO_FN
+#endif
+DUKE_KERNEL(void **instance, void **ctx)
 {
     const float *coef = (const float *)instance[1];
     float *eff        = (float *)ctx[1];

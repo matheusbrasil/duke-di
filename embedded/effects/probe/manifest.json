@@ -1,0 +1,56 @@
+{
+  "name": "Probe",
+  "filename": "MBPROBE",
+  "author": "matheusbrasil",
+  "id": "0900A002",
+  "version": "1.00",
+  "display": "PROBE",
+  "badge": "PR",
+  "description": "Test tool: runs the Duke DI v1.13 kernel and outputs its measured DSP cycles per call as tone pitch (A = mean, B = peak; cycles = 7e6 / Hz). Never save a patch containing it.",
+  "kernel": "probe.c",
+  "scaffold": "cleanroom",
+  "kernel_section": "text",
+  "opt_level": 2,
+  "opt_for_space": null,
+  "allow_stack": true,
+  "state_bytes": 212,
+  "dspload": 140,
+  "const_blob": {
+    "symbol": "duke_tables",
+    "words": 1869,
+    "init": "tables.bin"
+  },
+  "params": [
+    {
+      "name": "Input",
+      "max": 100,
+      "default": 50,
+      "explanation": "Duke DI Input, passed through to the timed kernel."
+    },
+    {
+      "name": "Bass",
+      "max": 100,
+      "default": 0,
+      "explanation": "Duke DI Bass, passed through to the timed kernel."
+    },
+    {
+      "name": "Trble",
+      "max": 100,
+      "default": 0,
+      "explanation": "Duke DI Treble, passed through to the timed kernel."
+    },
+    {
+      "name": "Level",
+      "max": 100,
+      "default": 80,
+      "curve": "stock_vol",
+      "explanation": "Duke DI Level, passed through to the timed kernel."
+    },
+    {
+      "name": "LoCut",
+      "values": ["OFF", "ON"],
+      "default": 0,
+      "explanation": "Duke DI LoCut, passed through to the timed kernel."
+    }
+  ]
+}
